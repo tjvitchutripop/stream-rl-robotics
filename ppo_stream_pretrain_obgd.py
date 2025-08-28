@@ -22,7 +22,8 @@ from mani_skill.utils.wrappers.flatten import FlattenActionSpaceWrapper
 from mani_skill.utils.wrappers.record import RecordEpisode
 from mani_skill.vector.wrappers.gymnasium import ManiSkillVectorEnv
 
-from normalization_wrappers_torch import NormalizeObservation, ScaleReward
+# from normalization_wrappers_torch import NormalizeObservation, ScaleReward
+from model import ActorMean, Critic, ActorMeanCBP, CriticCBP
 
 @dataclass
 class Args:
@@ -156,30 +157,10 @@ class Agent(nn.Module):
         #     nn.LeakyReLU(),
         #     layer_init(nn.Linear(256, np.prod(envs.single_action_space.shape)), std=0.01*np.sqrt(2)),
         # )
-        self.critic = nn.Sequential(
-            layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod(), 256)),
-            nn.LayerNorm(256),
-            nn.Tanh(),
-            layer_init(nn.Linear(256, 256)),
-            nn.LayerNorm(256),
-            nn.Tanh(),
-            layer_init(nn.Linear(256, 256)),
-            nn.LayerNorm(256),
-            nn.Tanh(),
-            layer_init(nn.Linear(256, 1)),
-        )
-        self.actor_mean = nn.Sequential(
-            layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod(), 256)),
-            nn.LayerNorm(256),
-            nn.Tanh(),
-            layer_init(nn.Linear(256, 256)),
-            nn.LayerNorm(256),
-            nn.Tanh(),
-            layer_init(nn.Linear(256, 256)),
-            nn.LayerNorm(256),
-            nn.Tanh(),
-            layer_init(nn.Linear(256, np.prod(envs.single_action_space.shape)), std=0.01*np.sqrt(2)),
-        )
+        self.critic = Critic(n_obs=np.array(envs.single_observation_space.shape).prod(), hidden_size=256)
+        self.actor_mean = ActorMean(n_obs=np.array(envs.single_observation_space.shape).prod(), n_actions=np.prod(envs.single_action_space.shape), hidden_size=256)
+        # self.actor_mean = ActorMeanCBP(n_obs=np.array(envs.single_observation_space.shape).prod(), n_actions=np.prod(envs.single_action_space.shape), hidden_size=256, replacement_rate=1e-5, maturity_threshold=1000)
+        # self.critic = CriticCBP(n_obs=np.array(envs.single_observation_space.shape).prod(), hidden_size=256, replacement_rate=1e-5, maturity_threshold=1000)
         self.actor_logstd = nn.Parameter(torch.ones(1, np.prod(envs.single_action_space.shape)) * -0.5)
 
     def get_value(self, x):
@@ -343,7 +324,8 @@ if __name__ == "__main__":
         #         break
         if args.save_model and iteration % args.eval_freq == 1:
             model_path = f"runs/{run_name}/ckpt_{iteration}.pt"
-            torch.save(agent.state_dict(), model_path)
+            checkpoint = {"model_state_dict": agent.state_dict(), "optimizer_policy_state_dict": optimizer_policy.state_dict(), "optimizer_value_state_dict": optimizer_value.state_dict()}
+            torch.save(checkpoint, model_path)
             print(f"model saved to {model_path}")
         # Annealing the rate if instructed to do so.
         # if args.anneal_lr:
@@ -513,7 +495,8 @@ if __name__ == "__main__":
     if not args.evaluate:
         if args.save_model:
             model_path = f"runs/{run_name}/final_ckpt.pt"
-            torch.save(agent.state_dict(), model_path)
+            checkpoint = {"model_state_dict": agent.state_dict(), "optimizer_policy_state_dict": optimizer_policy.state_dict(), "optimizer_value_state_dict": optimizer_value.state_dict()}
+            torch.save(checkpoint, model_path)
             print(f"model saved to {model_path}")
         logger.close()
     envs.close()

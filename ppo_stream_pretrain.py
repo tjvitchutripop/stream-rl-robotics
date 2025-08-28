@@ -318,7 +318,9 @@ if __name__ == "__main__":
         #         break
         if args.save_model and iteration % args.eval_freq == 1:
             model_path = f"runs/{run_name}/ckpt_{iteration}.pt"
-            torch.save(agent.state_dict(), model_path)
+            # save both model and optimizer state
+            checkpoint = {"model_state_dict": agent.state_dict(), "optimizer_state_dict": optimizer.state_dict()}
+            torch.save(checkpoint, model_path)
             print(f"model saved to {model_path}")
         # Annealing the rate if instructed to do so.
         if args.anneal_lr:
@@ -485,7 +487,8 @@ if __name__ == "__main__":
     if not args.evaluate:
         if args.save_model:
             model_path = f"runs/{run_name}/final_ckpt.pt"
-            torch.save(agent.state_dict(), model_path)
+            checkpoint = {"model_state_dict": agent.state_dict(), "optimizer_state_dict": optimizer.state_dict()}
+            torch.save(checkpoint, model_path)
             print(f"model saved to {model_path}")
         logger.close()
     envs.close()

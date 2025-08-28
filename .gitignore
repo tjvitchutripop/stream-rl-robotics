@@ -1,8 +1,8 @@
 __pycache__/
-Gymnasium-Robotics/
 results/
+runs/
 weights/
 logs/
-robocasa_robosuite/
+videos/
 wandb/
 .DS_Store

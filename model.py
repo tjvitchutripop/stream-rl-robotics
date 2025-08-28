@@ -1,0 +1,84 @@
+import torch
+import torch.nn as nn
+from cbp_linear import CBPLinear
+
+class ActorMean(nn.Module):
+    def __init__(self, n_obs=11, n_actions=3, hidden_size=256):
+        super(ActorMean, self).__init__()
+        self.fc1 = nn.Linear(n_obs, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.fc3 = nn.Linear(hidden_size, hidden_size)
+        self.fc4 = nn.Linear(hidden_size, n_actions)
+        self.activation = nn.Tanh()
+
+    def forward(self, x):
+        x = self.activation(self.fc1(x))
+        x = self.activation(self.fc2(x))
+        x = self.activation(self.fc3(x))
+        x = self.fc4(x)
+        return x
+    
+class Critic(nn.Module):
+    def __init__(self, n_obs=11, hidden_size=256):
+        super(Critic, self).__init__()
+        self.fc1 = nn.Linear(n_obs, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.fc3 = nn.Linear(hidden_size, hidden_size)
+        self.value = nn.Linear(hidden_size, 1)
+        self.activation = nn.Tanh()
+
+    def forward(self, x):
+        x = self.activation(self.fc1(x))
+        x = self.activation(self.fc2(x))
+        x = self.activation(self.fc3(x))
+        x = self.value(x)
+        return x
+
+class ActorMeanCBP(nn.Module):
+    def __init__(self, n_obs=11, n_actions=3, hidden_size=256, replacement_rate=1e-5, maturity_threshold=1000):
+        super(ActorMeanCBP, self).__init__()
+        self.fc1 = nn.Linear(n_obs, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.fc3 = nn.Linear(hidden_size, hidden_size)
+        self.fc4 = nn.Linear(hidden_size, n_actions)
+        self.activation = nn.Tanh()
+
+        self.cbp1 = CBPLinear(in_layer=self.fc1, out_layer=self.fc2, replacement_rate=replacement_rate, maturity_threshold=maturity_threshold, act_type="tanh")
+        self.cbp2 = CBPLinear(in_layer=self.fc2, out_layer=self.fc3, replacement_rate=replacement_rate, maturity_threshold=maturity_threshold, act_type="tanh")
+        self.cbp3 = CBPLinear(in_layer=self.fc3, out_layer=self.fc4, replacement_rate=replacement_rate, maturity_threshold=maturity_threshold, act_type="tanh")
+
+    def forward(self, x):
+        x = self.cbp1(self.activation(self.fc1(x)))
+        x = self.cbp2(self.activation(self.fc2(x)))
+        x = self.cbp3(self.activation(self.fc3(x)))
+        x = self.fc4(x)
+        return x
+    
+class CriticCBP(nn.Module):
+    def __init__(self, n_obs=11, hidden_size=128, replacement_rate=1e-5, maturity_threshold=1000):
+        super(CriticCBP, self).__init__()
+        self.fc1 = nn.Linear(n_obs, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.fc3 = nn.Linear(hidden_size, hidden_size)
+        self.value = nn.Linear(hidden_size, 1)
+        self.activation = nn.Tanh()
+
+        self.cbp1 = CBPLinear(in_layer=self.fc1, out_layer=self.fc2, replacement_rate=replacement_rate, maturity_threshold=maturity_threshold, act_type="tanh")
+        self.cbp2 = CBPLinear(in_layer=self.fc2, out_layer=self.fc3, replacement_rate=replacement_rate, maturity_threshold=maturity_threshold, act_type="tanh")
+        self.cbp3 = CBPLinear(in_layer=self.fc3, out_layer=self.value, replacement_rate=replacement_rate, maturity_threshold=maturity_threshold, act_type="tanh")
+
+    def forward(self, x):
+        x = self.cbp1(self.activation(self.fc1(x)))
+        x = self.cbp2(self.activation(self.fc2(x)))
+        x = self.cbp3(self.activation(self.fc3(x)))
+        x = self.value(x)
+        return x
+    
+class LinearWithLN(torch.nn.Module):
+    def __init__(self, in_dim, out_dim):
+        super().__init__()
+        self.fc = torch.nn.Linear(in_dim, out_dim)
+        self.ln = torch.nn.LayerNorm(out_dim)
+
+    def forward(self, x):
+        return self.ln(self.fc(x))

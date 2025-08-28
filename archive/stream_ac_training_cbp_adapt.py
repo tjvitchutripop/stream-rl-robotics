@@ -11,7 +11,7 @@ import gymnasium as gym
 from gymnasium.wrappers import RecordVideo
 import torch.nn.functional as F
 from torch.distributions import Normal
-from streaming_drl.optim import ObGD as Optimizer
+from streaming_drl.optim import ObGD, AdaptiveObGD
 from streaming_drl.sparse_init import sparse_init
 from streaming_drl.normalization_wrappers import NormalizeObservation, ScaleReward
 from streaming_drl.time_wrapper import AddTimeInfo
@@ -22,7 +22,7 @@ import moviepy.editor as mp
 import glob
 import mani_skill.envs
 from ppo_stream_pretrain import Agent
-# from gym_envs import make_lift_env
+from model import ActorMeanCBP, CriticCBP
 
 class ToNumpyWrapper(gym.Wrapper):
   def reset(self, **kwargs):
@@ -46,106 +46,21 @@ def initialize_weights(m):
         sparse_init(m.weight, sparsity=0.9)
         m.bias.data.fill_(0.0)
 
-# class Actor(nn.Module):
-#     def __init__(self, n_obs=11, n_actions=3, hidden_size=128):
-#         super(Actor, self).__init__()
-#         self.fc_layer = nn.Linear(n_obs, hidden_size)
-#         self.hidden_layer = nn.Linear(hidden_size, hidden_size)
-#         self.linear_mu = nn.Linear(hidden_size, n_actions)
-#         self.linear_std = nn.Linear(hidden_size, n_actions)
-#         self.apply(initialize_weights)
-
-#     def forward(self, x):
-#         x = self.fc_layer(x)
-#         x = F.layer_norm(x, x.size())
-#         x = F.leaky_relu(x)
-#         x = self.hidden_layer(x)
-#         x = F.layer_norm(x, x.size())
-#         x = F.leaky_relu(x)
-#         mu = self.linear_mu(x)
-#         pre_std = self.linear_std(x)
-#         std = F.softplus(pre_std)
-#         return mu, std
-
-# class Critic(nn.Module):
-#     def __init__(self, n_obs=11, hidden_size=128):
-#         super(Critic, self).__init__()
-#         self.fc_layer   = nn.Linear(n_obs, hidden_size)
-#         self.hidden_layer  = nn.Linear(hidden_size, hidden_size)
-#         self.linear_layer  = nn.Linear(hidden_size, 1)
-#         self.apply(initialize_weights)
-
-#     def forward(self, x):
-#         x = self.fc_layer(x)
-#         x = F.layer_norm(x, x.size())
-#         x = F.leaky_relu(x)
-#         x = self.hidden_layer(x)      
-#         x = F.layer_norm(x, x.size())
-#         x = F.leaky_relu(x)
-#         return self.linear_layer(x)
-
 class StreamAC(nn.Module):
     def __init__(self, n_obs=11, n_actions=3, hidden_size=128, lr=1.0, gamma=0.99, lamda=0.8, kappa_policy=3.0, kappa_value=2.0):
         super(StreamAC, self).__init__()
         self.gamma = gamma
-        # self.actor_mean = nn.Sequential(
-        #     nn.Linear(n_obs, 256),
-        #     nn.LayerNorm(256),
-        #     nn.LeakyReLU(),
-        #     nn.Linear(256, 256),
-        #     nn.LayerNorm(256),
-        #     nn.LeakyReLU(),
-        #     nn.Linear(256, 256),
-        #     nn.LayerNorm(256),
-        #     nn.LeakyReLU(),
-        #     nn.Linear(256, np.prod(n_actions)),
-        # )
-        # self.actor_logstd = nn.Parameter(torch.ones(1, np.prod(n_actions)) * -0.5)
-        # self.critic = nn.Sequential(
-        #     nn.Linear(n_obs, 256),
-        #     nn.LayerNorm(256),
-        #     nn.LeakyReLU(),
-        #     nn.Linear(256, 256),
-        #     nn.LayerNorm(256),
-        #     nn.LeakyReLU(),
-        #     nn.Linear(256, 256),
-        #     nn.LayerNorm(256),
-        #     nn.LeakyReLU(),
-        #     nn.Linear(256, 1),
-        # )
-        self.actor_mean = nn.Sequential(
-            nn.Linear(n_obs, 256),
-            # nn.LayerNorm(256),
-            nn.Tanh(),
-            nn.Linear(256, 256),
-            # nn.LayerNorm(256),
-            nn.Tanh(),
-            nn.Linear(256, 256),
-            # nn.LayerNorm(256),
-            nn.Tanh(),
-            nn.Linear(256, np.prod(n_actions)),
-        )
+        self.actor_mean = ActorMeanCBP(n_obs, n_actions, hidden_size, replacement_rate=1e-5, maturity_threshold=1000)
         self.actor_logstd = nn.Parameter(torch.ones(1, np.prod(n_actions)) * -0.5)
-        self.critic = nn.Sequential(
-            nn.Linear(n_obs, 256),
-            # nn.LayerNorm(256),
-            nn.Tanh(),
-            nn.Linear(256, 256),
-            # nn.LayerNorm(256),
-            nn.Tanh(),
-            nn.Linear(256, 256),
-            # nn.LayerNorm(256),
-            nn.Tanh(),
-            nn.Linear(256, 1),
-        )
-        # self.optimizer_policy = Optimizer(list(self.actor_mean.parameters()) + [self.actor_logstd], lr=lr, gamma=gamma, lamda=lamda, kappa=kappa_policy)
-        # self.optimizer_value = Optimizer(self.critic.parameters(), lr=lr, gamma=gamma, lamda=lamda, kappa=kappa_value)
+        self.critic = CriticCBP(n_obs, hidden_size, replacement_rate=1e-5, maturity_threshold=1000)
+        self.optimizer_policy = AdaptiveObGD(list(self.actor_mean.parameters()) + [self.actor_logstd], lr=lr, gamma=gamma, lamda=lamda, kappa=kappa_policy)
+        self.optimizer_value = AdaptiveObGD(self.critic.parameters(), lr=lr, gamma=gamma, lamda=lamda, kappa=kappa_value)
 
-        self.optimizer = start_trac(log_file='logs/trac.text', Base=torch.optim.Adam)(
-            list(self.actor_mean.parameters()) + [self.actor_logstd] + list(self.critic.parameters()),
-            lr=3e-4,
-            eps=1e-5
-        )
+        # self.optimizer = start_trac(log_file='logs/trac.text', Base=torch.optim.Adam)(
+        #     list(self.actor_mean.parameters()) + [self.actor_logstd] + list(self.critic.parameters()),
+        #     lr=3e-4,
+        #     eps=1e-5
+        # )
 
     def pi(self, x):
         mu = self.actor_mean(x)
@@ -179,15 +94,27 @@ class StreamAC(nn.Module):
         log_prob_pi = -(dist.log_prob(a)).sum()
         value_output = -v_s
         entropy_pi = -entropy_coeff * dist.entropy().sum() * torch.sign(delta).item()
-        # self.optimizer_value.zero_grad()
-        # self.optimizer_policy.zero_grad()
-        self.optimizer.zero_grad()
+        self.optimizer_value.zero_grad()
+        self.optimizer_policy.zero_grad()
+        # self.optimizer.zero_grad()
         value_output.backward()
         (log_prob_pi + entropy_pi).backward()
-        # self.optimizer_policy.step(delta.item(), reset=done)
-        # self.optimizer_value.step(delta.item(), reset=done)
+        if True:  # flip to True to debug once
+            bad = [n for (n,p) in list(self.actor_mean.named_parameters()) + [('actor_logstd', self.actor_logstd)] if p.grad is None]
+            if bad:
+                print("Params with None grad:", bad)
+        self.optimizer_policy.step(delta.item(), reset=done)
+        self.optimizer_value.step(delta.item(), reset=done)
         # nn.utils.clip_grad_norm_(self.parameters(), max_norm=0.5)
-        self.optimizer.step()
+        # self.optimizer.step()
+        wandb.log({
+            "train/log_prob_pi": log_prob_pi.item(),
+            "train/value": v_s.item(),
+            "train/td_target": td_target.item(),
+            "train/delta": delta.item(),
+            "train/entropy": dist.entropy().sum().item(),
+            "train/entropy_coeff": entropy_coeff,
+        })
 
         if overshooting_info:
             v_s, v_prime = self.v(s), self.v(s_prime)
@@ -217,7 +144,11 @@ class StreamACRunner:
         overshooting_info=False,
         render=False,
         max_episode_steps=200,
-        save_video=False
+        save_video=False,
+        do_damage=False,
+        damage_type='stuck_joint',
+        damage_start_step=0,
+        damage_steps=100_000,
     ):
         self.env_name = env_name
         self.seed = seed
@@ -237,6 +168,12 @@ class StreamACRunner:
         self.render = render
         self.max_episode_steps = max_episode_steps
         self.save_video = save_video
+
+        self.do_damage = do_damage
+        self.damage_type = damage_type
+        self.damage_start_step = damage_start_step
+        self.damage_steps = damage_steps
+        self.damage_ongoing = False
         
         self.agent = None
         self.env = None
@@ -246,6 +183,7 @@ class StreamACRunner:
         self.term_time_steps = []
 
         self.model_name = "stream_ac"
+        self.start_time = int(time.time())
         
     def create_logs(self):
         log_dir = "logs"
@@ -275,8 +213,12 @@ class StreamACRunner:
                     "kappa_value": self.kappa_value,
                     "eval_frequency": self.eval_frequency,
                     "eval_episodes": self.eval_episodes,
+                    "damage_start_step": self.damage_start_step,
+                    "do_damage": self.do_damage,
+                    "damage_type": self.damage_type,
                 },
-                name=f"{self.env_name}_seed{self.seed}_hidden_size{self.hidden_size}_lr{self.lr}_gamma{self.gamma}_lamda{self.lamda}_entropy{self.entropy_coeff}"
+                name=f"{self.env_name}_seed{self.seed}_hidden_size{self.hidden_size}_lr{self.lr}_gamma{self.gamma}_lamda{self.lamda}_entropy{self.entropy_coeff}",
+                save_code=True
             )
 
         self.log_file = log_file
@@ -284,7 +226,7 @@ class StreamACRunner:
         
     def setup_environment(self):
         render_mode = "human" if self.render else None
-        env = gym.make(self.env_name, num_envs=1, render_mode=render_mode, max_episode_steps=self.max_episode_steps)
+        env = gym.make(self.env_name, num_envs=1, render_mode=render_mode, max_episode_steps=self.max_episode_steps, reward_mode="normalized_dense")
         env = self.wrap_environment(env)
         return env
     
@@ -314,29 +256,15 @@ class StreamACRunner:
     
     def save_model_and_stats(self):
         # Save training data
-        save_dir = f"results/data_stream_ac_{self.env.spec.id}_hidden_size{self.hidden_size}_lr{self.lr}_gamma{self.gamma}_lamda{self.lamda}_entropy_coeff{self.entropy_coeff}"
+        save_dir = f"results/stream_ac_{self.env_name}_{self.start_time}"
         os.makedirs(save_dir, exist_ok=True)  
         with open(os.path.join(save_dir, f"seed_{self.seed}.pkl"), "wb") as f:
             pickle.dump((self.returns, self.term_time_steps, self.env_name), f)
 
         # Save model weights
-        save_dir = f"weights/stream_ac_{self.env.spec.id}_hidden_size{self.hidden_size}_lr{self.lr}_gamma{self.gamma}_lamda{self.lamda}_entropy_coeff{self.entropy_coeff}"
+        save_dir = f"weights/stream_ac_{self.env_name}_{self.start_time}"
         os.makedirs(save_dir, exist_ok=True)  
         torch.save(self.agent.state_dict(), os.path.join(save_dir, f"seed_{self.seed}.pth"))
-        
-        # Save env stats
-        reward_wrapper = self.env
-        while not isinstance(reward_wrapper, ScaleReward) and hasattr(reward_wrapper, 'env'):
-            reward_wrapper = reward_wrapper.env
-            
-        obs_wrapper = self.env
-        while not isinstance(obs_wrapper, NormalizeObservation) and hasattr(obs_wrapper, 'env'):
-            obs_wrapper = obs_wrapper.env
-
-        reward_stats = reward_wrapper.reward_stats
-        obs_stats = obs_wrapper.obs_stats
-        with open(os.path.join(save_dir, f"stats_data_{self.seed}.pkl"), "wb") as f:
-            pickle.dump((reward_stats, obs_stats), f)
 
         # Log final model to wandb
         if self.wandb_log:
@@ -355,6 +283,12 @@ class StreamACRunner:
 
         while episode_count < self.eval_episodes:
             a = self.agent.sample_action(s)
+            if self.do_damage and self.damage_ongoing:
+                if self.damage_type == 'broken_leg':
+                    # a = a * np.array([0,1,1,1,0,1,1,1,0,1,1,1]) # Front Right
+                    a = a * np.array([1,1,0,1,1,1,0,1,1,1,0,1]) # Back Left Leg
+                elif self.damage_type == 'stuck_joint':
+                    a = a * np.array([0,1,1,1,1,1,1,1,1,1,1,1]) # One Joint Stuck
             s_prime, r, terminated, truncated, info = self.env.step(a)
             s = s_prime
             if terminated or truncated:
@@ -381,7 +315,11 @@ class StreamACRunner:
         self.create_logs()
         self.env = self.setup_environment()
         self.agent = self.create_agent(self.env)
-        self.agent.load_state_dict(torch.load("/home/tj/Documents/apollo-streaming-rl/runs/AnymalC-Reach-v1__ppo_stream_pretrain_obgd__1__1755726847/ckpt_226.pt")) # prev /home/tj/Documents/apollo-streaming-rl/runs/AnymalC-Reach-v1__ppo_stream_pretrain__1__1752786867/final_ckpt.pt
+        checkpoint = torch.load("obgd_ppo_pretrain_old2.pt")
+        # checkpoint["model_state_dict"] = remap_fc_keys(checkpoint["model_state_dict"], self.agent)
+        self.agent.load_state_dict(checkpoint["model_state_dict"], strict=False)
+        # self.agent.optimizer_policy.load_state_dict(checkpoint["optimizer_policy_state_dict"])
+        # self.agent.optimizer_value.load_state_dict(checkpoint["optimizer_value_state_dict"])
         if self.debug:
             print(f"seed: {self.seed}", f"env: {self.env.spec.id}")
 
@@ -417,6 +355,31 @@ class StreamACRunner:
                     f.write(f"Mean Eval Episodic Return: {mean_return}, Success Rate: {success_rate}, Eval Number: {t // self.eval_frequency}\n")
 
             a = self.agent.sample_action(s)
+            if self.do_damage:
+                if t >= self.damage_start_step and (t - self.damage_start_step) < self.damage_steps:
+                    if self.damage_ongoing == False and self.damage_type == "slippery_floor":
+                        self.env.change_friction(-1.8, -1.8)
+                    self.damage_ongoing = True
+                    if self.damage_type == 'slippery_floor':
+                        wandb.log({"slippery_floor": 1})
+                    elif self.damage_type == 'broken_leg':
+                        # a = a * np.array([0,1,1,1,0,1,1,1,0,1,1,1]) # Front Right
+                        a = a * np.array([1,1,0,1,1,1,0,1,1,1,0,1]) # Back Left Leg
+                        wandb.log({"damaged_leg": 0})
+                    elif self.damage_type == 'stuck_joint':
+                        a = a * np.array([0,1,1,1,1,1,1,1,1,1,1,1]) # One Joint Stuck
+                        wandb.log({"damaged_joint": 0})
+                else:
+                    if self.damage_ongoing == True and self.damage_type == "slippery_floor":
+                        self.env.change_friction(0.3, 0.3) 
+                    self.damage_ongoing = False
+                    if self.damage_type == 'slippery_floor':
+                        wandb.log({"slippery_floor": 0})
+                    elif self.damage_type == 'broken_leg':
+                        wandb.log({"damaged_leg": -1})  
+                    elif self.damage_type == 'stuck_joint':
+                        wandb.log({"damaged_joint": -1})
+
             s_prime, r, terminated, truncated, info = self.env.step(a)
             self.agent.update_params(s, a, r, s_prime, terminated or truncated, self.entropy_coeff, self.overshooting_info)
             s = s_prime
@@ -608,7 +571,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=float, default=1)
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--lamda', type=float, default=0.8)
-    parser.add_argument('--total_steps', type=int, default=1_600_000)
+    parser.add_argument('--total_steps', type=int, default=2_000_000)
     parser.add_argument('--entropy_coeff', type=float, default=0.01)
     parser.add_argument('--kappa_policy', type=float, default=3.0)
     parser.add_argument('--kappa_value', type=float, default=2.0)
@@ -623,10 +586,10 @@ if __name__ == '__main__':
     # Add Ant-specific arguments
     parser.add_argument('--do_damage', action='store_true', default=True)
     parser.add_argument('--damage_start_step', type=int, default=500_000)
-    parser.add_argument('--damage_steps', type=int, default=100_000, help='Steps between damage events (Ant-v5 only)')
-    parser.add_argument('--damage_type', type=str, default='broken_leg',
-                        choices=['broken_leg', 'weak_joint', 'stuck_joint', 'noisy_joint'],
-                        help='Type of damage to apply (Ant-v5 only)')
+    parser.add_argument('--damage_steps', type=int, default=1_500_000, help='Steps between damage events')
+    parser.add_argument('--damage_type', type=str, default='slippery_floor',
+                        choices=['broken_leg', 'stuck_joint', 'slippery_floor'],
+                        help='Type of damage to apply')
     args = parser.parse_args()
 
     runner = StreamACRunner(
@@ -646,7 +609,11 @@ if __name__ == '__main__':
         wandb_log=args.wandb_log,
         overshooting_info=args.overshooting_info,
         render=args.render,
-        save_video=args.save_video
+        save_video=args.save_video,
+        do_damage=args.do_damage,
+        damage_type=args.damage_type,   
+        damage_start_step=args.damage_start_step,
+        damage_steps=args.damage_steps,
     )
     
     if args.mode == 'train':

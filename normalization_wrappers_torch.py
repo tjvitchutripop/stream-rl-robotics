@@ -102,4 +102,4 @@ class ScaleReward(gym.Wrapper, gym.utils.RecordConstructorArgs):
     def normalize(self, rews):
         self.reward_stats.update(self.reward_trace)
         norm = rews / torch.sqrt(self.reward_stats.var + self.epsilon)
-        return norm if self.is_vector_env else norm[0]
+        return norm if self.is_vector_env else norm[0]  
