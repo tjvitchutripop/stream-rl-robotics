@@ -36,6 +36,7 @@ agent.load_state_dict(torch.load("obgd_ppo_pretrain.pt")["model_state_dict"])
 successes = []
 # env.change_friction(-1.8, -1.8)
 s, _ = env.reset(seed=42)
+# env.set_goal_offset(0,3)
 env.set_goal_offset(0,2.4)
 episode_count = 0
 while episode_count < 50:
