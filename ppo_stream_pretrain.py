@@ -24,6 +24,8 @@ from mani_skill.utils.wrappers.record import RecordEpisode
 from mani_skill.vector.wrappers.gymnasium import ManiSkillVectorEnv
 
 from normalization_wrappers_torch import NormalizeObservation, ScaleReward
+from model import ActorMean, Critic, ActorMeanCBP, CriticCBP
+
 
 @dataclass
 class Args:
@@ -51,13 +53,13 @@ class Args:
     """path to a pretrained checkpoint file to start evaluation/training from"""
 
     # Algorithm specific arguments
-    env_id: str = "AnymalC-Reach-v1"
+    env_id: str = "PickCube-v1"
     """the id of the environment"""
-    total_timesteps: int = 100_000_000
+    total_timesteps: int = 10_000_000
     """total timesteps of the experiments"""
     learning_rate: float = 3e-4
     """the learning rate of the optimizer"""
-    num_envs: int = 4096
+    num_envs: int = 1024
     """the number of parallel environments"""
     num_eval_envs: int = 0
     """the number of parallel evaluation environments"""
@@ -133,30 +135,8 @@ def wrap_environment(env):
 class Agent(nn.Module):
     def __init__(self, envs):
         super().__init__()
-        self.critic = nn.Sequential(
-            layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod(), 256)),
-            nn.LayerNorm(256),
-            nn.LeakyReLU(),
-            layer_init(nn.Linear(256, 256)),
-            nn.LayerNorm(256),
-            nn.LeakyReLU(),
-            layer_init(nn.Linear(256, 256)),
-            nn.LayerNorm(256),
-            nn.LeakyReLU(),
-            layer_init(nn.Linear(256, 1)),
-        )
-        self.actor_mean = nn.Sequential(
-            layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod(), 256)),
-            nn.LayerNorm(256),
-            nn.LeakyReLU(),
-            layer_init(nn.Linear(256, 256)),
-            nn.LayerNorm(256),
-            nn.LeakyReLU(),
-            layer_init(nn.Linear(256, 256)),
-            nn.LayerNorm(256),
-            nn.LeakyReLU(),
-            layer_init(nn.Linear(256, np.prod(envs.single_action_space.shape)), std=0.01*np.sqrt(2)),
-        )
+        self.critic = Critic(n_obs=np.array(envs.single_observation_space.shape).prod(), hidden_size=256)
+        self.actor_mean = ActorMean(n_obs=np.array(envs.single_observation_space.shape).prod(), n_actions=np.prod(envs.single_action_space.shape), hidden_size=256)
         self.actor_logstd = nn.Parameter(torch.ones(1, np.prod(envs.single_action_space.shape)) * -0.5)
 
     def get_value(self, x):
@@ -263,7 +243,8 @@ if __name__ == "__main__":
         print("Running evaluation")
 
     agent = Agent(envs).to(device)
-    optimizer = start_trac(log_file='logs/trac.text', Base=torch.optim.Adam)(agent.parameters(), lr=args.learning_rate, eps=1e-5)
+    optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
+    # optimizer = start_trac(log_file='logs/trac.text', Base=torch.optim.Adam)(agent.parameters(), lr=args.learning_rate, eps=1e-5)
 
 
     # ALGO Logic: Storage setup

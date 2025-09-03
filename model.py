@@ -1,6 +1,12 @@
 import torch
 import torch.nn as nn
 from cbp_linear import CBPLinear
+from streaming_drl.sparse_init import sparse_init
+
+def initialize_weights(m):
+    if isinstance(m, nn.Linear):
+        sparse_init(m.weight, sparsity=0.9)
+        m.bias.data.fill_(0.0)
 
 class ActorMean(nn.Module):
     def __init__(self, n_obs=11, n_actions=3, hidden_size=256):
@@ -10,6 +16,7 @@ class ActorMean(nn.Module):
         self.fc3 = nn.Linear(hidden_size, hidden_size)
         self.fc4 = nn.Linear(hidden_size, n_actions)
         self.activation = nn.Tanh()
+        self.apply(initialize_weights)
 
     def forward(self, x):
         x = self.activation(self.fc1(x))
@@ -26,6 +33,7 @@ class Critic(nn.Module):
         self.fc3 = nn.Linear(hidden_size, hidden_size)
         self.value = nn.Linear(hidden_size, 1)
         self.activation = nn.Tanh()
+        self.apply(initialize_weights)
 
     def forward(self, x):
         x = self.activation(self.fc1(x))
@@ -42,6 +50,7 @@ class ActorMeanCBP(nn.Module):
         self.fc3 = nn.Linear(hidden_size, hidden_size)
         self.fc4 = nn.Linear(hidden_size, n_actions)
         self.activation = nn.Tanh()
+        self.apply(initialize_weights)
 
         self.cbp1 = CBPLinear(in_layer=self.fc1, out_layer=self.fc2, replacement_rate=replacement_rate, maturity_threshold=maturity_threshold, act_type="tanh")
         self.cbp2 = CBPLinear(in_layer=self.fc2, out_layer=self.fc3, replacement_rate=replacement_rate, maturity_threshold=maturity_threshold, act_type="tanh")
@@ -62,6 +71,7 @@ class CriticCBP(nn.Module):
         self.fc3 = nn.Linear(hidden_size, hidden_size)
         self.value = nn.Linear(hidden_size, 1)
         self.activation = nn.Tanh()
+        self.apply(initialize_weights)
 
         self.cbp1 = CBPLinear(in_layer=self.fc1, out_layer=self.fc2, replacement_rate=replacement_rate, maturity_threshold=maturity_threshold, act_type="tanh")
         self.cbp2 = CBPLinear(in_layer=self.fc2, out_layer=self.fc3, replacement_rate=replacement_rate, maturity_threshold=maturity_threshold, act_type="tanh")

@@ -50,7 +50,6 @@ def initialize_weights(m):
 class StreamAC(nn.Module):
     def __init__(self, n_obs=11, n_actions=3, hidden_size=128, lr=1.0, gamma=0.99, lamda=0.8, kappa_policy=3.0, kappa_value=2.0, cbp=False, optimizer="AdaptiveObGD"):
         super(StreamAC, self).__init__()
-        self.optimizer = optimizer
         self.gamma = gamma
         if cbp:
             self.actor_mean = ActorMeanCBP(n_obs, n_actions, hidden_size, replacement_rate=1e-5, maturity_threshold=1000)
@@ -59,28 +58,18 @@ class StreamAC(nn.Module):
             self.actor_mean = ActorMean(n_obs, n_actions, hidden_size)
             self.critic = Critic(n_obs, hidden_size)
         self.actor_logstd = nn.Parameter(torch.ones(1, np.prod(n_actions)) * -0.5)
-        if self.optimizer == "AdaptiveObGD":
+        if optimizer == "AdaptiveObGD":
             self.optimizer_policy = AdaptiveObGD(list(self.actor_mean.parameters()) + [self.actor_logstd], lr=lr, gamma=gamma, lamda=lamda, kappa=kappa_policy)
             self.optimizer_value = AdaptiveObGD(self.critic.parameters(), lr=lr, gamma=gamma, lamda=lamda, kappa=kappa_value)
-        elif self.optimizer == "ObGD":
+        elif optimizer == "ObGD":
             self.optimizer_policy = ObGD(list(self.actor_mean.parameters()) + [self.actor_logstd], lr=lr, gamma=gamma, lamda=lamda, kappa=kappa_policy)
             self.optimizer_value = ObGD(self.critic.parameters(), lr=lr, gamma=gamma, lamda=lamda, kappa=kappa_value)
-        elif self.optimizer == "FastTrac":
-            self.optimizer_policy = start_trac(log_file='logs/trac.text', Base=AdaptiveObGD)(
-                list(self.actor_mean.parameters()) + [self.actor_logstd] + list(self.critic.parameters()),
-                lr=3e-4,
-                eps=1e-5
-            )
-            self.optimizer_value = start_trac(log_file='logs/trac.text', Base=AdaptiveObGD)(
-                list(self.critic.parameters()),
-                lr=3e-5,
-                eps=1e-5
-            )
-            # self.optimizer_trac = start_trac(log_file='logs/trac.text', Base=torch.optim.Adam)(
-            #     list(self.actor_mean.parameters()) + [self.actor_logstd] + list(self.critic.parameters()),
-            #     lr=3e-4,
-            #     eps=1e-5
-            # )
+
+        # self.optimizer = start_trac(log_file='logs/trac.text', Base=torch.optim.Adam)(
+        #     list(self.actor_mean.parameters()) + [self.actor_logstd] + list(self.critic.parameters()),
+        #     lr=3e-4,
+        #     eps=1e-5
+        # )
 
     def pi(self, x):
         mu = self.actor_mean(x)
@@ -114,20 +103,15 @@ class StreamAC(nn.Module):
         log_prob_pi = -(dist.log_prob(a)).sum()
         value_output = -v_s
         entropy_pi = -entropy_coeff * dist.entropy().sum() * torch.sign(delta).item()
-        # if self.optimizer == "FastTrac":
-        #     self.optimizer_trac.zero_grad()
-        # else:
         self.optimizer_value.zero_grad()
         self.optimizer_policy.zero_grad()
+        # self.optimizer.zero_grad()
         value_output.backward()
         (log_prob_pi + entropy_pi).backward()
-        if self.optimizer == "FastTrac":
-            # nn.utils.clip_grad_norm_(self.parameters(), max_norm=0.5)
-            self.optimizer_policy.step(delta.item(), reset=done)
-            self.optimizer_value.step(delta.item(), reset=done)
-        else:
-            self.optimizer_policy.step(delta.item(), reset=done)
-            self.optimizer_value.step(delta.item(), reset=done)
+        self.optimizer_policy.step(delta.item(), reset=done)
+        self.optimizer_value.step(delta.item(), reset=done)
+        # nn.utils.clip_grad_norm_(self.parameters(), max_norm=0.5)
+        # self.optimizer.step()
         wandb.log({
             "train/log_prob_pi": log_prob_pi.item(),
             "train/value": v_s.item(),
@@ -218,10 +202,10 @@ class StreamACRunner:
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
         
-        log_file = os.path.join(log_dir, f"{self.env_name}-training_{self.damage_type}_{self.optimizer}_cbp={self.cbp}_seed_{self.seed}.txt")
+        log_file = os.path.join(log_dir, f"{self.env_name}-training_{self.optimizer}_cbp={self.cbp}_seed_{self.seed}.txt")
         open(log_file, 'w').close()
 
-        eval_log_file = os.path.join(log_dir, f"{self.env_name}-eval_{self.damage_type}_{self.optimizer}_cbp={self.cbp}_seed_{self.seed}.txt")
+        eval_log_file = os.path.join(log_dir, f"{self.env_name}-eval_{self.optimizer}_cbp={self.cbp}_seed_{self.seed}.txt")
         open(eval_log_file, 'w').close()
 
         if self.wandb_log:
@@ -248,7 +232,7 @@ class StreamACRunner:
                     "do_damage": self.do_damage,
                     "damage_type": self.damage_type,
                 },
-                name=f"{self.env_name}_{self.damage_type}_{self.optimizer}_cbp={self.cbp}_seed_{self.seed}",
+                name=f"{self.env_name}_{self.optimizer}_cbp={self.cbp}_seed_{self.seed}",
                 save_code=True
             )
 
@@ -335,7 +319,7 @@ class StreamACRunner:
                     # a = a * np.array([0,1,1,1,0,1,1,1,0,1,1,1]) # Front Right
                     a = a * np.array([1,1,0,1,1,1,0,1,1,1,0,1]) # Back Left Leg
                 elif self.damage_type == 'stuck_joint':
-                    a = a * np.array([1,1,1,1,1,1,1,1,1,1,0,1]) # One Joint Stuck
+                    a = a * np.array([0,1,1,1,1,1,1,1,1,1,1,1]) # One Joint Stuck
             s_prime, r, terminated, truncated, info = self.env.step(a)
             s = s_prime
             if terminated or truncated:
@@ -362,11 +346,12 @@ class StreamACRunner:
         self.create_logs()
         self.env = self.setup_environment()
         self.agent = self.create_agent(self.env)
-        checkpoint = torch.load(self.checkpoint)
-        if self.cbp is True:
-            self.agent.load_state_dict(checkpoint["model_state_dict"], strict=False)
-        else:
-            self.agent.load_state_dict(checkpoint["model_state_dict"], strict=True)
+        if self.checkpoint != "":
+            checkpoint = torch.load(self.checkpoint)
+            if self.cbp is True:
+                self.agent.load_state_dict(checkpoint["model_state_dict"], strict=False)
+            else:
+                self.agent.load_state_dict(checkpoint["model_state_dict"], strict=True)
         # self.agent.optimizer_policy.load_state_dict(checkpoint["optimizer_policy_state_dict"])
         # self.agent.optimizer_value.load_state_dict(checkpoint["optimizer_value_state_dict"])
         if self.debug:
@@ -423,7 +408,7 @@ class StreamACRunner:
                         a = a * np.array([1,1,0,1,1,1,0,1,1,1,0,1]) # Back Left Leg
                         wandb.log({"damaged_leg": 0})
                     elif self.damage_type == 'stuck_joint':
-                        a = a * np.array([1,1,1,1,1,1,1,1,1,1,0,1]) # One Joint Stuck
+                        a = a * np.array([0,1,1,1,1,1,1,1,1,1,1,1]) # One Joint Stuck
                         wandb.log({"damaged_joint": 0})
                 else:
                     if self.damage_ongoing == True and self.damage_type == "slippery_floor":
@@ -491,7 +476,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=float, default=1)
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--lamda', type=float, default=0.8)
-    parser.add_argument('--total_steps', type=int, default=2_000_000)
+    parser.add_argument('--total_steps', type=int, default=30_000_000)
     parser.add_argument('--entropy_coeff', type=float, default=0.01)
     parser.add_argument('--kappa_policy', type=float, default=3.0)
     parser.add_argument('--kappa_value', type=float, default=2.0)
@@ -503,13 +488,13 @@ if __name__ == '__main__':
     parser.add_argument('--render', action='store_true')
     parser.add_argument('--mode', type=str, choices=['train', 'test'], default='train')
     parser.add_argument('--save_video', action='store_true', help='Enable video recording during testing', default=False)
-    parser.add_argument('--cbp', type=bool, default=True)
+    parser.add_argument('--cbp', type=bool, default=False)
     parser.add_argument('--optimizer', type=str, default="AdaptiveObGD")
-    parser.add_argument('--checkpoint', type=str, default="obgd_ppo_pretrain.pt")
-    parser.add_argument('--do_damage', action='store_true', default=True)
+    parser.add_argument('--checkpoint', type=str, default="")
+    parser.add_argument('--do_damage', action='store_true', default=False)
     parser.add_argument('--damage_start_step', type=int, default=500_000)
     parser.add_argument('--damage_steps', type=int, default=1_500_000, help='Steps between damage events')
-    parser.add_argument('--damage_type', type=str, default='stuck_joint',
+    parser.add_argument('--damage_type', type=str, default='goal_shift',
                         choices=['broken_leg', 'stuck_joint', 'slippery_floor', 'goal_shift'],
                         help='Type of damage to apply')
     args = parser.parse_args()

@@ -1,5 +1,7 @@
 __pycache__/
 results/
+figures/
+data/
 runs/
 weights/
 logs/

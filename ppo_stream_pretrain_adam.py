@@ -51,9 +51,9 @@ class Args:
     """path to a pretrained checkpoint file to start evaluation/training from"""
 
     # Algorithm specific arguments
-    env_id: str = "PickCube-v1"
+    env_id: str = "AnymalC-Reach-v1"
     """the id of the environment"""
-    total_timesteps: int = 10_000_000
+    total_timesteps: int = 15_000_000
     """total timesteps of the experiments"""
     learning_rate: float = 3e-4
     """the learning rate of the optimizer"""
@@ -267,9 +267,7 @@ if __name__ == "__main__":
         print("Running evaluation")
 
     agent = Agent(envs).to(device)
-    # optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
-    optimizer_policy = AdaptiveObGD(list(agent.actor_mean.parameters()) + [agent.actor_logstd], lr=1.0, gamma=0.99, lamda=0.8, kappa=3.0)
-    optimizer_value = AdaptiveObGD(agent.critic.parameters(), lr=1.0, gamma=0.99, lamda=0.8, kappa=2.0)
+    optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
 
 
     # ALGO Logic: Storage setup
@@ -324,7 +322,7 @@ if __name__ == "__main__":
         #         break
         if args.save_model and iteration % args.eval_freq == 1:
             model_path = f"runs/{run_name}/ckpt_{iteration}.pt"
-            checkpoint = {"model_state_dict": agent.state_dict(), "optimizer_policy_state_dict": optimizer_policy.state_dict(), "optimizer_value_state_dict": optimizer_value.state_dict()}
+            checkpoint = {"model_state_dict": agent.state_dict(), "optimizer_state_dict": optimizer.state_dict()}
             torch.save(checkpoint, model_path)
             print(f"model saved to {model_path}")
         # Annealing the rate if instructed to do so.
@@ -461,12 +459,10 @@ if __name__ == "__main__":
                 entropy_loss = entropy.mean()
                 loss = pg_loss - args.ent_coef * entropy_loss + v_loss * args.vf_coef
 
-                optimizer_value.zero_grad()
-                optimizer_policy.zero_grad()
+                optimizer.zero_grad()
                 loss.backward()
                 nn.utils.clip_grad_norm_(agent.parameters(), args.max_grad_norm)
-                optimizer_value.step(delta=1.0, reset=False)
-                optimizer_policy.step(delta=1.0, reset=False)
+                optimizer.step()
 
             if args.target_kl is not None and approx_kl > args.target_kl:
                 break
@@ -477,8 +473,7 @@ if __name__ == "__main__":
         var_y = np.var(y_true)
         explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
 
-        logger.add_scalar("charts/learning_rate_policy", optimizer_policy.param_groups[0]["lr"], global_step)
-        logger.add_scalar("charts/learning_rate_value", optimizer_value.param_groups[0]["lr"], global_step)
+        logger.add_scalar("charts/learning_rate", optimizer.param_groups[0]["lr"], global_step)
         logger.add_scalar("losses/value_loss", v_loss.item(), global_step)
         logger.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
         logger.add_scalar("losses/entropy", entropy_loss.item(), global_step)
@@ -495,7 +490,7 @@ if __name__ == "__main__":
     if not args.evaluate:
         if args.save_model:
             model_path = f"runs/{run_name}/final_ckpt.pt"
-            checkpoint = {"model_state_dict": agent.state_dict(), "optimizer_policy_state_dict": optimizer_policy.state_dict(), "optimizer_value_state_dict": optimizer_value.state_dict()}
+            checkpoint = {"model_state_dict": agent.state_dict(), "optimizer_state_dict": optimizer.state_dict()}
             torch.save(checkpoint, model_path)
             print(f"model saved to {model_path}")
         logger.close()
