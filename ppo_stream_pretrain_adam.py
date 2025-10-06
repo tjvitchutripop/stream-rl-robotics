@@ -51,13 +51,13 @@ class Args:
     """path to a pretrained checkpoint file to start evaluation/training from"""
 
     # Algorithm specific arguments
-    env_id: str = "AnymalC-Reach-v1"
+    env_id: str = "UnitreeGo2-Reach-v1"
     """the id of the environment"""
-    total_timesteps: int = 15_000_000
+    total_timesteps: int = 30_000_000_000
     """total timesteps of the experiments"""
     learning_rate: float = 3e-4
     """the learning rate of the optimizer"""
-    num_envs: int = 1024
+    num_envs: int = 10_000
     """the number of parallel environments"""
     num_eval_envs: int = 0
     """the number of parallel evaluation environments"""

@@ -201,10 +201,15 @@ class StreamACRunner:
         self.save_video = save_video
 
         self.do_damage = do_damage
-        self.damage_type = damage_type
+        self.damage_type = damage_type if isinstance(damage_type, list) else [damage_type]
         self.damage_start_step = damage_start_step
         self.damage_steps = damage_steps
         self.damage_ongoing = False
+        
+        # Initialize sequential damage tracking
+        self.current_damage_index = 0
+        self.current_damage_type = None
+        self.damage_cycle_start_step = None
 
         self.cbp = cbp
         self.layernorm = layernorm
@@ -226,10 +231,11 @@ class StreamACRunner:
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
         
-        log_file = os.path.join(log_dir, f"{self.env_name}-training_{self.damage_type}_{self.optimizer}_cbp={self.cbp}_seed_{self.seed}.txt")
+        damage_types_str = "_".join(self.damage_type)
+        log_file = os.path.join(log_dir, f"{self.env_name}-training_{damage_types_str}_{self.optimizer}_cbp={self.cbp}_seed_{self.seed}.txt")
         open(log_file, 'w').close()
 
-        eval_log_file = os.path.join(log_dir, f"{self.env_name}-eval_{self.damage_type}_{self.optimizer}_cbp={self.cbp}_seed_{self.seed}.txt")
+        eval_log_file = os.path.join(log_dir, f"{self.env_name}-eval_{damage_types_str}_{self.optimizer}_cbp={self.cbp}_seed_{self.seed}.txt")
         open(eval_log_file, 'w').close()
 
         if self.wandb_log:
@@ -254,10 +260,11 @@ class StreamACRunner:
                     "optimizer": self.optimizer,
                     "checkpoint": self.checkpoint,
                     "damage_start_step": self.damage_start_step,
+                    "damage_steps": self.damage_steps,
                     "do_damage": self.do_damage,
                     "damage_type": self.damage_type,
                 },
-                name=f"{self.env_name}_{self.damage_type}_{self.optimizer}_cbp={self.cbp}_ln={self.layernorm}_seed_{self.seed}",
+                name=f"{self.env_name}_{damage_types_str}_{self.optimizer}_cbp={self.cbp}_ln={self.layernorm}_seed_{self.seed}",
                 save_code=True
             )
 
@@ -297,8 +304,106 @@ class StreamACRunner:
         )
         return agent
     
+    def get_current_damage_type(self, t):
+        """Get the current damage type based on the current timestep."""
+        if not self.do_damage or t < self.damage_start_step:
+            return None
+        
+        # Calculate which damage cycle we're in
+        steps_since_damage_start = t - self.damage_start_step
+        total_cycle_length = len(self.damage_type) * self.damage_steps
+        
+        # Check if we're past all damage cycles
+        if steps_since_damage_start >= total_cycle_length:
+            return None
+        
+        # Calculate which damage type in the current cycle
+        damage_index = (steps_since_damage_start // self.damage_steps) % len(self.damage_type)
+        return self.damage_type[damage_index]
+    
+    def is_damage_active(self, t):
+        """Check if damage should be active at timestep t."""
+        if not self.do_damage or t < self.damage_start_step:
+            return False
+        
+        steps_since_damage_start = t - self.damage_start_step
+        total_cycle_length = len(self.damage_type) * self.damage_steps
+        
+        # Check if we're past all damage cycles
+        return steps_since_damage_start < total_cycle_length
+    
+    def get_current_damage_type(self, t):
+        """Get the current damage type based on the current timestep."""
+        if not self.do_damage or t < self.damage_start_step:
+            return None
+        
+        # Calculate which damage cycle we're in
+        steps_since_damage_start = t - self.damage_start_step
+        total_cycle_length = len(self.damage_type) * self.damage_steps
+        
+        # Check if we're past all damage cycles
+        if steps_since_damage_start >= total_cycle_length:
+            return None
+        
+        # Calculate which damage type in the current cycle
+        damage_index = (steps_since_damage_start // self.damage_steps) % len(self.damage_type)
+        return self.damage_type[damage_index]
+    
+    def is_damage_active(self, t):
+        """Check if damage should be active at timestep t."""
+        if not self.do_damage or t < self.damage_start_step:
+            return False
+        
+        steps_since_damage_start = t - self.damage_start_step
+        total_cycle_length = len(self.damage_type) * self.damage_steps
+        
+        # Check if we're past all damage cycles
+        return steps_since_damage_start < total_cycle_length
+    
+    def _initialize_damage(self, damage_type, t):
+        """Initialize a specific damage type."""
+        if damage_type == "slippery_floor":
+            self.env.change_friction(-1.8, -1.8)
+        elif damage_type == "slippery_floor_easy":
+            self.env.change_friction(-1.7, -1.7)
+        elif damage_type == "goal_shift":
+            self.env.set_goal_offset(0, 3.0)
+        elif damage_type == "goal_shift_easy":
+            self.env.set_goal_offset(0, 2.4)
+        
+    def _cleanup_damage(self, damage_type):
+        """Clean up effects of a specific damage type."""
+        if damage_type in ["slippery_floor", "slippery_floor_easy"]:
+            self.env.change_friction(0.3, 0.3)
+        elif damage_type in ["goal_shift", "goal_shift_easy"]:
+            self.env.set_goal_offset(0, 0)
+    
+    def _apply_damage(self, action, damage_type):
+        """Apply damage effects to action."""
+        if damage_type == 'broken_leg':
+            # Back Left Leg
+            return action * np.array([1,1,0,1,1,1,0,1,1,1,0,1])
+        elif damage_type == 'stuck_joint':
+            # One Joint Stuck
+            return action * np.array([1,1,1,1,1,1,1,1,1,1,0,1])
+        return action
+    
+    def _log_damage_state(self, damage_type, is_active):
+        """Log the current damage state to wandb."""
+        if not self.wandb_log or damage_type is None:
+            return
+            
+        state_value = 1 if is_active else 0
+        if damage_type in ['goal_shift', 'goal_shift_easy']:
+            wandb.log({"goal_shift": state_value})
+        elif damage_type in ['slippery_floor', 'slippery_floor_easy']:
+            wandb.log({"slippery_floor": state_value})
+        elif damage_type == 'broken_leg':
+            wandb.log({"damaged_leg": state_value if is_active else -1})
+        elif damage_type == 'stuck_joint':
+            wandb.log({"damaged_joint": state_value if is_active else -1})
+    
     def save_model_and_stats(self):
-        # Save training data
         save_dir = f"results/stream_ac_{self.env_name}_{self.start_time}"
         os.makedirs(save_dir, exist_ok=True)  
         with open(os.path.join(save_dir, f"seed_{self.seed}.pkl"), "wb") as f:
@@ -308,20 +413,6 @@ class StreamACRunner:
         save_dir = f"weights/stream_ac_{self.env_name}_{self.start_time}"
         os.makedirs(save_dir, exist_ok=True)  
         torch.save(self.agent.state_dict(), os.path.join(save_dir, f"seed_{self.seed}.pth"))
-        
-        # Save env stats
-        # reward_wrapper = self.env
-        # while not isinstance(reward_wrapper, ScaleReward) and hasattr(reward_wrapper, 'env'):
-        #     reward_wrapper = reward_wrapper.env
-            
-        # obs_wrapper = self.env
-        # while not isinstance(obs_wrapper, NormalizeObservation) and hasattr(obs_wrapper, 'env'):
-        #     obs_wrapper = obs_wrapper.env
-
-        # reward_stats = reward_wrapper.reward_stats
-        # obs_stats = obs_wrapper.obs_stats
-        # with open(os.path.join(save_dir, f"stats_data_{self.seed}.pkl"), "wb") as f:
-        #     pickle.dump((reward_stats, obs_stats), f)
 
         # Log final model to wandb
         if self.wandb_log:
@@ -330,7 +421,7 @@ class StreamACRunner:
         
         return save_dir
     
-    def evaluate(self):
+    def evaluate(self, current_step=None):
         torch.manual_seed(self.seed)
 
         returns = []
@@ -338,13 +429,21 @@ class StreamACRunner:
         s, _ = self.env.reset(seed=self.seed)
         episode_count = 0
 
+        # Determine current damage type for evaluation
+        current_damage_type = None
+        if current_step is not None:
+            current_damage_type = self.get_current_damage_type(current_step)
+            is_damage_active = self.is_damage_active(current_step)
+        else:
+            is_damage_active = False
+
         while episode_count < self.eval_episodes:
             a = self.agent.sample_action(s)
-            if self.do_damage and self.damage_ongoing:
-                if self.damage_type == 'broken_leg':
+            if self.do_damage and is_damage_active and current_damage_type:
+                if current_damage_type == 'broken_leg':
                     # a = a * np.array([0,1,1,1,0,1,1,1,0,1,1,1]) # Front Right
                     a = a * np.array([1,1,0,1,1,1,0,1,1,1,0,1]) # Back Left Leg
-                elif self.damage_type == 'stuck_joint':
+                elif current_damage_type == 'stuck_joint':
                     a = a * np.array([1,1,1,1,1,1,1,1,1,1,0,1]) # One Joint Stuck
             s_prime, r, terminated, truncated, info = self.env.step(a)
             s = s_prime
@@ -385,14 +484,6 @@ class StreamACRunner:
         self.returns = []
         self.term_time_steps = []
 
-        if self.do_damage and self.damage_type == "goal_shift" and self.damage_start_step==0:
-            self.env.set_goal_offset(0,3.0)
-            self.damage_ongoing = True
-            wandb.log({"goal_shift": 1})
-        if self.do_damage and self.damage_type == "goal_shift_easy" and self.damage_start_step==0:
-            self.env.set_goal_offset(0,2.4)
-            self.damage_ongoing = True
-            wandb.log({"goal_shift": 1})
         s, _ = self.env.reset(seed=self.seed)
         episode_count = 0
 
@@ -402,7 +493,7 @@ class StreamACRunner:
         for t in range(1, self.total_steps + 1):
             # Run evaluation
             if t % self.eval_frequency == 0:
-                eval_returns, success_rate = self.evaluate()
+                eval_returns, success_rate = self.evaluate(current_step=t)
                 mean_return = np.mean(eval_returns)
 
                 if self.wandb_log:
@@ -422,37 +513,32 @@ class StreamACRunner:
                     f.write(f"Mean Eval Episodic Return: {mean_return}, Success Rate: {success_rate}, Eval Number: {t // self.eval_frequency}\n")
 
             a = self.agent.sample_action(s)
+            
+            # Handle sequential damage types
+            current_damage_type = self.get_current_damage_type(t)
+            is_damage_active = self.is_damage_active(t)
+            
+            # Track damage transitions
             if self.do_damage:
-                if t >= self.damage_start_step and (t - self.damage_start_step) < self.damage_steps:
-                    if self.damage_ongoing == False and self.damage_type == "slippery_floor":
-                        self.env.change_friction(-1.8, -1.8)
-                    if self.damage_ongoing == False and self.damage_type == "slippery_floor_easy":
-                        self.env.change_friction(-1.7, -1.7)
-                    if self.damage_type == 'goal_shift' or self.damage_type == 'goal_shift_easy':
-                        wandb.log({"goal_shift": 1})
-                    else:
-                        self.damage_ongoing = True
-                    if self.damage_type == 'slippery_floor' or self.damage_type == 'slippery_floor_easy':
-                        wandb.log({"slippery_floor": 1})
-                    elif self.damage_type == 'broken_leg':
-                        # a = a * np.array([0,1,1,1,0,1,1,1,0,1,1,1]) # Front Right
-                        a = a * np.array([1,1,0,1,1,1,0,1,1,1,0,1]) # Back Left Leg
-                        wandb.log({"damaged_leg": 0})
-                    elif self.damage_type == 'stuck_joint':
-                        a = a * np.array([1,1,1,1,1,1,1,1,1,1,0,1]) # One Joint Stuck
-                        wandb.log({"damaged_joint": 0})
+                if current_damage_type != self.current_damage_type:
+                    # Damage type has changed or started/stopped
+                    if self.current_damage_type is not None:
+                        # Clean up previous damage
+                        self._cleanup_damage(self.current_damage_type)
+                    
+                    if current_damage_type is not None:
+                        # Initialize new damage
+                        self._initialize_damage(current_damage_type, t)
+                    
+                    self.current_damage_type = current_damage_type
+                    self.damage_ongoing = is_damage_active
+                
+                # Apply current damage
+                if is_damage_active and current_damage_type:
+                    a = self._apply_damage(a, current_damage_type)
+                    self._log_damage_state(current_damage_type, True)
                 else:
-                    if self.damage_ongoing == True and (self.damage_type == "slippery_floor" or self.damage_type == "slippery_floor_easy"):
-                        self.env.change_friction(0.3, 0.3) 
-                    self.damage_ongoing = False
-                    if self.damage_type == 'goal_shift' or self.damage_type == 'goal_shift_easy':
-                        wandb.log({"goal_shift": 0})
-                    if self.damage_type == 'slippery_floor' or self.damage_type == 'slippery_floor_easy':
-                        wandb.log({"slippery_floor": 0})
-                    elif self.damage_type == 'broken_leg':
-                        wandb.log({"damaged_leg": -1})  
-                    elif self.damage_type == 'stuck_joint':
-                        wandb.log({"damaged_joint": -1})
+                    self._log_damage_state(self.current_damage_type, False)
 
             s_prime, r, terminated, truncated, info = self.env.step(a)
             self.agent.update_params(s, a, r, s_prime, terminated or truncated, self.entropy_coeff, self.overshooting_info)
@@ -477,18 +563,6 @@ class StreamACRunner:
                 self.returns.append(episode_return)
                 self.term_time_steps.append(t)
                 terminated, truncated = False, False
-                if self.do_damage and (self.damage_type == "goal_shift" or self.damage_type == "goal_shift_easy"):
-                    if t+1 >= self.damage_start_step and (t+1 - self.damage_start_step) < self.damage_steps:
-                        if self.damage_ongoing == False and self.damage_type == "goal_shift":
-                            self.env.set_goal_offset(0,3.0)
-                            self.damage_ongoing = True
-                        if self.damage_ongoing == False and self.damage_type == "goal_shift_easy":
-                            self.env.set_goal_offset(0,2.4)
-                            self.damage_ongoing = True
-                    else:
-                        if self.damage_ongoing == True and (self.damage_type == "goal_shift" or self.damage_type == "goal_shift_easy"):
-                            self.env.set_goal_offset(0,0)
-                            self.damage_ongoing = False
                 s, _ = self.env.reset()
                 episode_count += 1
         
@@ -510,7 +584,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=float, default=1)
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--lamda', type=float, default=0.8)
-    parser.add_argument('--total_steps', type=int, default=1_500_000)
+    parser.add_argument('--total_steps', type=int, default=3_500_000)
     parser.add_argument('--entropy_coeff', type=float, default=0.01)
     parser.add_argument('--kappa_policy', type=float, default=3.0)
     parser.add_argument('--kappa_value', type=float, default=2.0)
@@ -522,16 +596,16 @@ if __name__ == '__main__':
     parser.add_argument('--render', action='store_true')
     parser.add_argument('--mode', type=str, choices=['train', 'test'], default='train')
     parser.add_argument('--save_video', action='store_true', help='Enable video recording during testing', default=False)
-    parser.add_argument('--cbp', action='store_true', default=False)
+    parser.add_argument('--cbp', action='store_true', default=True)
     parser.add_argument('--layernorm', action='store_true', default=False)
     parser.add_argument('--optimizer', type=str, default="AdaptiveObGD")
     parser.add_argument('--checkpoint', type=str, default="obgd_ppo_pretrain.pt")
     parser.add_argument('--do_damage', action='store_true', default=True)
-    parser.add_argument('--damage_start_step', type=int, default=0)
-    parser.add_argument('--damage_steps', type=int, default=1_500_000, help='Steps between damage events')
-    parser.add_argument('--damage_type', type=str, default='slippery_floor',
+    parser.add_argument('--damage_start_step', type=int, default=500_000)
+    parser.add_argument('--damage_steps', type=int, default=1_000_000, help='Steps between damage events')
+    parser.add_argument('--damage_type', nargs='+', default=['stuck_joint','slippery_floor_easy', 'goal_shift_easy'],
                         choices=['broken_leg', 'stuck_joint', 'slippery_floor', 'slippery_floor_easy', 'goal_shift', 'goal_shift_easy'],
-                        help='Type of damage to apply')
+                        help='List of damage types to apply sequentially')
     args = parser.parse_args()
 
     runner = StreamACRunner(
