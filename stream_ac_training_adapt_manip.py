@@ -21,9 +21,10 @@ import time
 import moviepy.editor as mp
 import glob
 import mani_skill.envs
+from mani_skill.envs.tasks.quadruped.quadruped_joystick import UnitreeGo2JoystickEnv
 from ppo_stream_pretrain import Agent
 # from gym_envs import make_lift_env
-from model import ActorMean, Critic, ActorMeanLN, CriticLN, ActorMeanCBP, CriticCBP
+from model import ActorMean, Critic, ActorMeanCBP, CriticCBP
 from interpretability import MLPWandBLogger
 
 class ToNumpyWrapper(gym.Wrapper):
@@ -49,45 +50,28 @@ def initialize_weights(m):
         m.bias.data.fill_(0.0)
 
 class StreamAC(nn.Module):
-    def __init__(self, n_obs=11, n_actions=3, hidden_size=128, lr=1.0, gamma=0.99, lamda=0.8, kappa_policy=3.0, kappa_value=2.0, cbp=False, layernorm=False, optimizer="AdaptiveObGD"):
+    def __init__(self, n_obs=11, n_actions=3, hidden_size=128, lr=1.0, gamma=0.99, lamda=0.8, kappa_policy=3.0, kappa_value=2.0, cbp=False, optimizer="AdaptiveObGD"):
         super(StreamAC, self).__init__()
-        self.optimizer = optimizer
         self.gamma = gamma
         if cbp:
             self.actor_mean = ActorMeanCBP(n_obs, n_actions, hidden_size, replacement_rate=1e-5, maturity_threshold=1000)
             self.critic = CriticCBP(n_obs, hidden_size, replacement_rate=1e-5, maturity_threshold=1000)
-        elif layernorm:
-            self.actor_mean = ActorMeanLN(n_obs, n_actions, hidden_size)
-            self.critic = CriticLN(n_obs, hidden_size)
         else:
             self.actor_mean = ActorMean(n_obs, n_actions, hidden_size)
             self.critic = Critic(n_obs, hidden_size)
         self.actor_logstd = nn.Parameter(torch.ones(1, np.prod(n_actions)) * -0.5)
-        if self.optimizer == "AdaptiveObGD":
+        if optimizer == "AdaptiveObGD":
             self.optimizer_policy = AdaptiveObGD(list(self.actor_mean.parameters()) + [self.actor_logstd], lr=lr, gamma=gamma, lamda=lamda, kappa=kappa_policy)
             self.optimizer_value = AdaptiveObGD(self.critic.parameters(), lr=lr, gamma=gamma, lamda=lamda, kappa=kappa_value)
-        elif self.optimizer == "ObGD":
+        elif optimizer == "ObGD":
             self.optimizer_policy = ObGD(list(self.actor_mean.parameters()) + [self.actor_logstd], lr=lr, gamma=gamma, lamda=lamda, kappa=kappa_policy)
             self.optimizer_value = ObGD(self.critic.parameters(), lr=lr, gamma=gamma, lamda=lamda, kappa=kappa_value)
-        elif self.optimizer == "FastTrac":
-            self.optimizer_policy = start_trac(log_file='logs/trac.text', Base=AdaptiveObGD)(
-                list(self.actor_mean.parameters()) + [self.actor_logstd] + list(self.critic.parameters()),
-                lr=3e-4,
-                eps=1e-5
-            )
-            self.optimizer_value = start_trac(log_file='logs/trac.text', Base=AdaptiveObGD)(
-                list(self.critic.parameters()),
-                lr=3e-5,
-                eps=1e-5
-            )
-        elif self.optimizer == "Adam":
-            self.optimizer_policy = torch.optim.Adam(list(self.actor_mean.parameters()) + [self.actor_logstd], lr=3e-4, eps=1e-5)
-            self.optimizer_value = torch.optim.Adam(self.critic.parameters(), lr=3e-4, eps=1e-5)
-            # self.optimizer_trac = start_trac(log_file='logs/trac.text', Base=torch.optim.Adam)(
-            #     list(self.actor_mean.parameters()) + [self.actor_logstd] + list(self.critic.parameters()),
-            #     lr=3e-4,
-            #     eps=1e-5
-            # )
+
+        # self.optimizer = start_trac(log_file='logs/trac.text', Base=torch.optim.Adam)(
+        #     list(self.actor_mean.parameters()) + [self.actor_logstd] + list(self.critic.parameters()),
+        #     lr=3e-4,
+        #     eps=1e-5
+        # )
 
     def pi(self, x):
         mu = self.actor_mean(x)
@@ -121,20 +105,15 @@ class StreamAC(nn.Module):
         log_prob_pi = -(dist.log_prob(a)).sum()
         value_output = -v_s
         entropy_pi = -entropy_coeff * dist.entropy().sum() * torch.sign(delta).item()
-        # if self.optimizer == "FastTrac":
-        #     self.optimizer_trac.zero_grad()
-        # else:
         self.optimizer_value.zero_grad()
         self.optimizer_policy.zero_grad()
+        # self.optimizer.zero_grad()
         value_output.backward()
         (log_prob_pi + entropy_pi).backward()
-        if self.optimizer == "Adam":
-            nn.utils.clip_grad_norm_(self.parameters(), max_norm=0.5)
-            self.optimizer_policy.step()
-            self.optimizer_value.step()
-        else:
-            self.optimizer_policy.step(delta.item(), reset=done)
-            self.optimizer_value.step(delta.item(), reset=done)
+        self.optimizer_policy.step(delta.item(), reset=done)
+        self.optimizer_value.step(delta.item(), reset=done)
+        # nn.utils.clip_grad_norm_(self.parameters(), max_norm=0.5)
+        # self.optimizer.step()
         wandb.log({
             "train/log_prob_pi": log_prob_pi.item(),
             "train/value": v_s.item(),
@@ -178,10 +157,8 @@ class StreamACRunner:
         damage_start_step=0,
         damage_steps=100_000,
         cbp=False,
-        layernorm=False,
         optimizer="AdaptiveObGD",
-        checkpoint="",
-        interpretability=False,
+        checkpoint=""
     ):
         self.env_name = env_name
         self.seed = seed
@@ -209,7 +186,6 @@ class StreamACRunner:
         self.damage_ongoing = False
 
         self.cbp = cbp
-        self.layernorm = layernorm
         self.optimizer = optimizer
         self.checkpoint = checkpoint
         
@@ -228,10 +204,10 @@ class StreamACRunner:
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
         
-        log_file = os.path.join(log_dir, f"{self.env_name}-training_{self.damage_type}_{self.optimizer}_cbp={self.cbp}_seed_{self.seed}.txt")
+        log_file = os.path.join(log_dir, f"{self.env_name}-training_{self.optimizer}_cbp={self.cbp}_seed_{self.seed}.txt")
         open(log_file, 'w').close()
 
-        eval_log_file = os.path.join(log_dir, f"{self.env_name}-eval_{self.damage_type}_{self.optimizer}_cbp={self.cbp}_seed_{self.seed}.txt")
+        eval_log_file = os.path.join(log_dir, f"{self.env_name}-eval_{self.optimizer}_cbp={self.cbp}_seed_{self.seed}.txt")
         open(eval_log_file, 'w').close()
 
         if self.wandb_log:
@@ -252,14 +228,13 @@ class StreamACRunner:
                     "eval_frequency": self.eval_frequency,
                     "eval_episodes": self.eval_episodes,
                     "cbp": self.cbp, 
-                    "layernorm": self.layernorm,
                     "optimizer": self.optimizer,
                     "checkpoint": self.checkpoint,
                     "damage_start_step": self.damage_start_step,
                     "do_damage": self.do_damage,
                     "damage_type": self.damage_type,
                 },
-                name=f"{self.env_name}_{self.damage_type}_{self.optimizer}_cbp={self.cbp}_ln={self.layernorm}_seed_{self.seed}",
+                name=f"{self.env_name}_{self.optimizer}_cbp={self.cbp}_seed_{self.seed}",
                 save_code=True
             )
 
@@ -294,11 +269,10 @@ class StreamACRunner:
             kappa_policy=self.kappa_policy, 
             kappa_value=self.kappa_value,
             cbp=self.cbp,
-            layernorm=self.layernorm,
             optimizer=self.optimizer,
         )
-        if self.wandb_log and self.interpretability:
-            self.logger = MLPWandBLogger(agent, log_interval=1000, activation_fn='tanh')
+
+        self.logger = MLPWandBLogger(agent, log_interval=1000)
         return agent
     
     def save_model_and_stats(self):
@@ -343,21 +317,20 @@ class StreamACRunner:
         episode_count = 0
 
         while episode_count < self.eval_episodes:
+            episode_return = 0
             a = self.agent.sample_action(s)
             if self.do_damage and self.damage_ongoing:
                 if self.damage_type == 'broken_leg':
                     # a = a * np.array([0,1,1,1,0,1,1,1,0,1,1,1]) # Front Right
                     a = a * np.array([1,1,0,1,1,1,0,1,1,1,0,1]) # Back Left Leg
                 elif self.damage_type == 'stuck_joint':
-                    a = a * np.array([1,1,1,1,1,1,1,1,1,1,0,1]) # One Joint Stuck
+                    a = a * np.array([0,1,1,1,1,1,1,1,1,1,1,1]) # One Joint Stuck
             s_prime, r, terminated, truncated, info = self.env.step(a)
+            episode_return += r
             s = s_prime
             if terminated or truncated:
-                episode_return = info['episode']['r']
-                if isinstance(episode_return, (list, np.ndarray)):
-                    episode_return = episode_return[0]
+                
                 returns.append(episode_return)
-
                 is_success = info['success']
                 if isinstance(is_success, (list, np.ndarray)):
                     is_success = is_success[0]
@@ -376,11 +349,12 @@ class StreamACRunner:
         self.create_logs()
         self.env = self.setup_environment()
         self.agent = self.create_agent(self.env)
-        checkpoint = torch.load(self.checkpoint)
-        if self.cbp is True or self.layernorm is True:
-            self.agent.load_state_dict(checkpoint["model_state_dict"], strict=False)
-        else:
-            self.agent.load_state_dict(checkpoint["model_state_dict"], strict=True)
+        if self.checkpoint != "":
+            checkpoint = torch.load(self.checkpoint)
+            if self.cbp is True:
+                self.agent.load_state_dict(checkpoint["model_state_dict"], strict=False)
+            else:
+                self.agent.load_state_dict(checkpoint["model_state_dict"], strict=True)
         # self.agent.optimizer_policy.load_state_dict(checkpoint["optimizer_policy_state_dict"])
         # self.agent.optimizer_value.load_state_dict(checkpoint["optimizer_value_state_dict"])
         if self.debug:
@@ -393,11 +367,10 @@ class StreamACRunner:
             self.env.set_goal_offset(0,3.0)
             self.damage_ongoing = True
             wandb.log({"goal_shift": 1})
-        if self.do_damage and self.damage_type == "goal_shift_easy" and self.damage_start_step==0:
-            self.env.set_goal_offset(0,2.4)
-            self.damage_ongoing = True
-            wandb.log({"goal_shift": 1})
         s, _ = self.env.reset(seed=self.seed)
+        if self.do_damage and self.damage_type == "change_object" and self.damage_start_step==0:
+            self.env.change_object("025_mug")
+            wandb.log({"change_object": 1})
         episode_count = 0
 
         start_time = time.time()
@@ -428,39 +401,42 @@ class StreamACRunner:
             a = self.agent.sample_action(s)
             if self.do_damage:
                 if t >= self.damage_start_step and (t - self.damage_start_step) < self.damage_steps:
-                    if self.damage_ongoing == False and self.damage_type == "slippery_floor":
-                        self.env.change_friction(-1.8, -1.8)
-                    if self.damage_ongoing == False and self.damage_type == "slippery_floor_easy":
-                        self.env.change_friction(-1.7, -1.7)
-                    if self.damage_type == 'goal_shift' or self.damage_type == 'goal_shift_easy':
+                    if self.damage_ongoing == False and self.damage_type == "slippery_cube":
+                        self.env.change_cube_friction(-1.8, -1.8)
+                    if self.damage_type == 'goal_shift':
                         wandb.log({"goal_shift": 1})
+                    if self.damage_type == 'change_object':
+                        wandb.log({"change_object": 1})
                     else:
                         self.damage_ongoing = True
-                    if self.damage_type == 'slippery_floor' or self.damage_type == 'slippery_floor_easy':
-                        wandb.log({"slippery_floor": 1})
+                    if self.damage_type == 'slippery_cube':
+                        wandb.log({"slippery_cube": 1})
                     elif self.damage_type == 'broken_leg':
                         # a = a * np.array([0,1,1,1,0,1,1,1,0,1,1,1]) # Front Right
                         a = a * np.array([1,1,0,1,1,1,0,1,1,1,0,1]) # Back Left Leg
                         wandb.log({"damaged_leg": 0})
                     elif self.damage_type == 'stuck_joint':
-                        a = a * np.array([1,1,1,1,1,1,1,1,1,1,0,1]) # One Joint Stuck
+                        a = a * np.array([0,1,1,1,1,1,1,1,1,1,1,1]) # One Joint Stuck
                         wandb.log({"damaged_joint": 0})
                 else:
-                    if self.damage_ongoing == True and (self.damage_type == "slippery_floor" or self.damage_type == "slippery_floor_easy"):
-                        self.env.change_friction(0.3, 0.3) 
+                    if self.damage_ongoing == True and self.damage_type == "slippery_cube":
+                        self.env.change_cube_friction(0.3, 0.3) 
                     self.damage_ongoing = False
-                    if self.damage_type == 'goal_shift' or self.damage_type == 'goal_shift_easy':
+                    if self.damage_type == 'change_object':
+                        wandb.log({"change_object": 0})
+                    if self.damage_type == 'goal_shift':
                         wandb.log({"goal_shift": 0})
-                    if self.damage_type == 'slippery_floor' or self.damage_type == 'slippery_floor_easy':
-                        wandb.log({"slippery_floor": 0})
+                    if self.damage_type == 'slippery_cube':
+                        wandb.log({"slippery_cube": 0})
                     elif self.damage_type == 'broken_leg':
                         wandb.log({"damaged_leg": -1})  
                     elif self.damage_type == 'stuck_joint':
                         wandb.log({"damaged_joint": -1})
 
             s_prime, r, terminated, truncated, info = self.env.step(a)
-            if self.wandb_log and self.interpretability:
-                self.logger.log(t)
+            self.logger.log(t)
+            if self.render:
+                self.env.render()
             self.agent.update_params(s, a, r, s_prime, terminated or truncated, self.entropy_coeff, self.overshooting_info)
             s = s_prime
 
@@ -483,17 +459,23 @@ class StreamACRunner:
                 self.returns.append(episode_return)
                 self.term_time_steps.append(t)
                 terminated, truncated = False, False
-                if self.do_damage and (self.damage_type == "goal_shift" or self.damage_type == "goal_shift_easy"):
+                if self.do_damage and self.damage_type == "goal_shift":
                     if t+1 >= self.damage_start_step and (t+1 - self.damage_start_step) < self.damage_steps:
                         if self.damage_ongoing == False and self.damage_type == "goal_shift":
                             self.env.set_goal_offset(0,3.0)
                             self.damage_ongoing = True
-                        if self.damage_ongoing == False and self.damage_type == "goal_shift_easy":
-                            self.env.set_goal_offset(0,2.4)
+                    else:
+                        if self.damage_ongoing == True and self.damage_type == "goal_shift":
+                            self.env.set_goal_offset(0,0)
+                            self.damage_ongoing = False
+                if self.do_damage and self.damage_type == "change_object":
+                    if t+1 >= self.damage_start_step and (t+1 - self.damage_start_step) < self.damage_steps:
+                        if self.damage_ongoing == False and self.damage_type == "change_object":
+                            self.env.change_object("025_mug")
                             self.damage_ongoing = True
                     else:
-                        if self.damage_ongoing == True and (self.damage_type == "goal_shift" or self.damage_type == "goal_shift_easy"):
-                            self.env.set_goal_offset(0,0)
+                        if self.damage_ongoing == True and self.damage_type == "change_object":
+                            self.env.reset_object()
                             self.damage_ongoing = False
                 s, _ = self.env.reset()
                 episode_count += 1
@@ -510,13 +492,13 @@ class StreamACRunner:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Stream AC(λ)')
-    parser.add_argument('--env_name', type=str, default='AnymalC-Reach-v1')
+    parser.add_argument('--env_name', type=str, default='PickCube-v1')
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--hidden_size', type=int, default=256)
     parser.add_argument('--lr', type=float, default=1)
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--lamda', type=float, default=0.8)
-    parser.add_argument('--total_steps', type=int, default=1_500_000)
+    parser.add_argument('--total_steps', type=int, default=1_000_000)
     parser.add_argument('--entropy_coeff', type=float, default=0.01)
     parser.add_argument('--kappa_policy', type=float, default=3.0)
     parser.add_argument('--kappa_value', type=float, default=2.0)
@@ -528,16 +510,14 @@ if __name__ == '__main__':
     parser.add_argument('--render', action='store_true')
     parser.add_argument('--mode', type=str, choices=['train', 'test'], default='train')
     parser.add_argument('--save_video', action='store_true', help='Enable video recording during testing', default=False)
-    parser.add_argument('--cbp', action='store_true', default=False)
-    parser.add_argument('--layernorm', action='store_true', default=False)
+    parser.add_argument('--cbp', type=bool, default=False)
     parser.add_argument('--optimizer', type=str, default="AdaptiveObGD")
-    parser.add_argument('--checkpoint', type=str, default="pretrained-models/anymalc-reach/obgd_ppo_pretrain.pt")
-    parser.add_argument('--interpretability', action='store_true', default=False)
-    parser.add_argument('--do_damage', action='store_true', default=True)
-    parser.add_argument('--damage_start_step', type=int, default=500_000)
+    parser.add_argument('--checkpoint', type=str, default="pretrained-models/pick-cube/adam_ppo_pick_pretrain.pt")
+    parser.add_argument('--do_damage', action='store_true', default=False)
+    parser.add_argument('--damage_start_step', type=int, default=10_000)
     parser.add_argument('--damage_steps', type=int, default=1_500_000, help='Steps between damage events')
-    parser.add_argument('--damage_type', type=str, default='slippery_floor',
-                        choices=['broken_leg', 'stuck_joint', 'slippery_floor', 'slippery_floor_easy', 'goal_shift', 'goal_shift_easy'],
+    parser.add_argument('--damage_type', type=str, default='change_object',
+                        choices=['stuck_joint', 'slippery_cube', 'change_object', 'goal_shift'],
                         help='Type of damage to apply')
     args = parser.parse_args()
 
@@ -564,7 +544,6 @@ if __name__ == '__main__':
         damage_start_step=args.damage_start_step,
         damage_steps=args.damage_steps,
         cbp=args.cbp,
-        layernorm=args.layernorm,
         optimizer=args.optimizer,
         checkpoint=args.checkpoint
     )

@@ -49,6 +49,44 @@ class CriticLN(nn.Module):
         x = self.value(x)
         return x
 
+class ActorMeanDeep(nn.Module):
+    def __init__(self, n_obs=11, n_actions=3, hidden_size=256):
+        super(ActorMeanDeep, self).__init__()
+        self.fc1 = nn.Linear(n_obs, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.fc3 = nn.Linear(hidden_size, hidden_size)
+        self.fc4 = nn.Linear(hidden_size, n_actions)
+        self.activation1 = nn.Tanh()
+        self.activation2 = nn.Tanh()
+        self.activation3 = nn.Tanh()
+        self.apply(initialize_weights)
+
+    def forward(self, x):
+        x = self.activation1(self.fc1(x))
+        x = self.activation2(self.fc2(x))
+        x = self.activation3(self.fc3(x))
+        x = self.fc4(x)
+        return x
+    
+class CriticDeep(nn.Module):
+    def __init__(self, n_obs=11, hidden_size=256):
+        super(CriticDeep, self).__init__()
+        self.fc1 = nn.Linear(n_obs, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.fc3 = nn.Linear(hidden_size, hidden_size)
+        self.value = nn.Linear(hidden_size, 1)
+        self.activation1 = nn.Tanh()
+        self.activation2 = nn.Tanh()
+        self.activation3 = nn.Tanh()
+        self.apply(initialize_weights)
+
+    def forward(self, x):
+        x = self.activation1(self.fc1(x))
+        x = self.activation2(self.fc2(x))
+        x = self.activation3(self.fc3(x))
+        x = self.value(x)
+        return x
+
 class ActorMean(nn.Module):
     def __init__(self, n_obs=11, n_actions=3, hidden_size=256):
         super(ActorMean, self).__init__()
@@ -56,13 +94,15 @@ class ActorMean(nn.Module):
         self.fc2 = nn.Linear(hidden_size, hidden_size)
         self.fc3 = nn.Linear(hidden_size, hidden_size)
         self.fc4 = nn.Linear(hidden_size, n_actions)
-        self.activation = nn.Tanh()
+        self.activation1 = nn.Tanh()
+        self.activation2 = nn.Tanh()
+        self.activation3 = nn.Tanh()
         self.apply(initialize_weights)
 
     def forward(self, x):
-        x = self.activation(self.fc1(x))
-        x = self.activation(self.fc2(x))
-        x = self.activation(self.fc3(x))
+        x = self.activation1(self.fc1(x))
+        x = self.activation2(self.fc2(x))
+        x = self.activation3(self.fc3(x))
         x = self.fc4(x)
         return x
     
@@ -73,13 +113,15 @@ class Critic(nn.Module):
         self.fc2 = nn.Linear(hidden_size, hidden_size)
         self.fc3 = nn.Linear(hidden_size, hidden_size)
         self.value = nn.Linear(hidden_size, 1)
-        self.activation = nn.Tanh()
+        self.activation1 = nn.Tanh()
+        self.activation2 = nn.Tanh()
+        self.activation3 = nn.Tanh()
         self.apply(initialize_weights)
 
     def forward(self, x):
-        x = self.activation(self.fc1(x))
-        x = self.activation(self.fc2(x))
-        x = self.activation(self.fc3(x))
+        x = self.activation1(self.fc1(x))
+        x = self.activation2(self.fc2(x))
+        x = self.activation3(self.fc3(x))
         x = self.value(x)
         return x
 

@@ -1,3 +1,6 @@
+"""
+Soft Actor-Critic (SAC) pretraining script for ManiSkill environments. (WIP)
+"""
 
 from collections import defaultdict
 from dataclasses import dataclass

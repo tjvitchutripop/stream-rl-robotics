@@ -21,6 +21,7 @@ import time
 import moviepy.editor as mp
 import glob
 import mani_skill.envs
+from mani_skill.envs.tasks.quadruped.quadruped_joystick import UnitreeGo2JoystickEnv
 from ppo_stream_pretrain import Agent
 # from gym_envs import make_lift_env
 from model import ActorMean, Critic, ActorMeanCBP, CriticCBP
@@ -313,6 +314,7 @@ class StreamACRunner:
         episode_count = 0
 
         while episode_count < self.eval_episodes:
+            episode_return = 0
             a = self.agent.sample_action(s)
             if self.do_damage and self.damage_ongoing:
                 if self.damage_type == 'broken_leg':
@@ -321,13 +323,11 @@ class StreamACRunner:
                 elif self.damage_type == 'stuck_joint':
                     a = a * np.array([0,1,1,1,1,1,1,1,1,1,1,1]) # One Joint Stuck
             s_prime, r, terminated, truncated, info = self.env.step(a)
+            episode_return += r
             s = s_prime
             if terminated or truncated:
-                episode_return = info['episode']['r']
-                if isinstance(episode_return, (list, np.ndarray)):
-                    episode_return = episode_return[0]
+                
                 returns.append(episode_return)
-
                 is_success = info['success']
                 if isinstance(is_success, (list, np.ndarray)):
                     is_success = is_success[0]
@@ -424,6 +424,8 @@ class StreamACRunner:
                         wandb.log({"damaged_joint": -1})
 
             s_prime, r, terminated, truncated, info = self.env.step(a)
+            if self.render:
+                self.env.render()
             self.agent.update_params(s, a, r, s_prime, terminated or truncated, self.entropy_coeff, self.overshooting_info)
             s = s_prime
 
@@ -470,13 +472,13 @@ class StreamACRunner:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Stream AC(λ)')
-    parser.add_argument('--env_name', type=str, default='AnymalC-Reach-v1')
+    parser.add_argument('--env_name', type=str, default='PickCube-v1')
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--hidden_size', type=int, default=256)
     parser.add_argument('--lr', type=float, default=1)
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--lamda', type=float, default=0.8)
-    parser.add_argument('--total_steps', type=int, default=30_000_000)
+    parser.add_argument('--total_steps', type=int, default=1_000_000)
     parser.add_argument('--entropy_coeff', type=float, default=0.01)
     parser.add_argument('--kappa_policy', type=float, default=3.0)
     parser.add_argument('--kappa_value', type=float, default=2.0)
@@ -490,7 +492,7 @@ if __name__ == '__main__':
     parser.add_argument('--save_video', action='store_true', help='Enable video recording during testing', default=False)
     parser.add_argument('--cbp', type=bool, default=False)
     parser.add_argument('--optimizer', type=str, default="AdaptiveObGD")
-    parser.add_argument('--checkpoint', type=str, default="")
+    parser.add_argument('--checkpoint', type=str, default="adam_ppo_pick_pretrain.pt")
     parser.add_argument('--do_damage', action='store_true', default=False)
     parser.add_argument('--damage_start_step', type=int, default=500_000)
     parser.add_argument('--damage_steps', type=int, default=1_500_000, help='Steps between damage events')
