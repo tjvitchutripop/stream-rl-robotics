@@ -4,7 +4,7 @@ import os
 import warnings
 warnings.filterwarnings("ignore")
 
-directory = '/home/tj/Documents/stream-rl-plasticity/data/'
+directory = 'data/'
 # Quiet warnings
 # Loop through each file in the directory
 # Create a table to store the results where each row is one method and the columns are the mean and std for each task (leg, leg-e, floor, floor-e, goal, goal-e), meaning there will be 12 columns in total

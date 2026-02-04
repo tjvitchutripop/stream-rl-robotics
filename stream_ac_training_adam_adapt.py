@@ -23,7 +23,7 @@ import glob
 import mani_skill.envs
 from ppo_stream_pretrain import Agent
 # from gym_envs import make_lift_env
-from model import ActorMean, Critic, ActorMeanLN, CriticLN, ActorMeanCBP, CriticCBP
+from model import ActorMean, Critic
 from interpretability import MLPWandBLogger
 
 class ToNumpyWrapper(gym.Wrapper):
@@ -81,8 +81,8 @@ class StreamAC(nn.Module):
                 eps=1e-5
             )
         elif self.optimizer == "Adam":
-            self.optimizer_policy = torch.optim.Adam(list(self.actor_mean.parameters()) + [self.actor_logstd], lr=3e-4, eps=1e-5)
-            self.optimizer_value = torch.optim.Adam(self.critic.parameters(), lr=3e-4, eps=1e-5)
+            self.optimizer_policy = torch.optim.Adam(list(self.actor_mean.parameters()) + [self.actor_logstd], lr=lr, eps=1e-5)
+            self.optimizer_value = torch.optim.Adam(self.critic.parameters(), lr=lr, eps=1e-5)
             # self.optimizer_trac = start_trac(log_file='logs/trac.text', Base=torch.optim.Adam)(
             #     list(self.actor_mean.parameters()) + [self.actor_logstd] + list(self.critic.parameters()),
             #     lr=3e-4,
@@ -106,50 +106,76 @@ class StreamAC(nn.Module):
         return dist.sample().numpy()
 
     def update_params(self, s, a, r, s_prime, done, entropy_coeff, overshooting_info=False):
+        # ----- Convert to tensors -----
         done_mask = 0 if done else 1
-        s, a, r, s_prime, done_mask = torch.tensor(np.array(s), dtype=torch.float), torch.tensor(np.array(a)), \
-                                         torch.tensor(np.array(r)), torch.tensor(np.array(s_prime), dtype=torch.float), \
-                                         torch.tensor(np.array(done_mask), dtype=torch.float)
+        s = torch.as_tensor(s, dtype=torch.float32)
+        a = torch.as_tensor(a)
+        r = torch.as_tensor(r)
+        s_prime = torch.as_tensor(s_prime, dtype=torch.float32)
+        done_mask = torch.as_tensor(done_mask, dtype=torch.float32)
 
-        v_s, v_prime = self.v(s), self.v(s_prime)
+        # ----- Critic -----
+        v_s = self.v(s)
+        v_prime = self.v(s_prime)
+
         td_target = r + self.gamma * v_prime * done_mask
-        delta = td_target - v_s
+        delta = td_target - v_s                                       # <-- TD error
 
+        # ---- Critic loss: 1/2 δ² (semi-gradient TD update) ----
+        critic_loss = 0.5 * delta.pow(2)
+
+        # ---- Actor ----
         mu, std = self.pi(s)
         dist = Normal(mu, std)
 
-        log_prob_pi = -(dist.log_prob(a)).sum()
-        value_output = -v_s
-        entropy_pi = -entropy_coeff * dist.entropy().sum() * torch.sign(delta).item()
-        # if self.optimizer == "FastTrac":
-        #     self.optimizer_trac.zero_grad()
-        # else:
-        self.optimizer_value.zero_grad()
-        self.optimizer_policy.zero_grad()
-        value_output.backward()
-        (log_prob_pi + entropy_pi).backward()
-        if self.optimizer == "Adam":
-            nn.utils.clip_grad_norm_(self.parameters(), max_norm=0.5)
-            self.optimizer_policy.step()
-            self.optimizer_value.step()
-        else:
-            self.optimizer_policy.step(delta.item(), reset=done)
-            self.optimizer_value.step(delta.item(), reset=done)
+        log_prob = dist.log_prob(a).sum()
+        entropy = dist.entropy().sum()
+
+        # Advantage ≈ TD error
+        actor_loss = -(log_prob * delta.detach())                    # <-- delta now used correctly!
+
+        # Adaptive entropy regularization
+        entropy_term = -entropy_coeff * entropy * torch.sign(delta).item()
+
+        # Total actor loss:
+        actor_total = actor_loss + entropy_term
+
+        # ---- Backprop ----
+        self.actor_mean.zero_grad()
+        self.critic.zero_grad()
+
+        critic_loss.backward()
+        actor_total.backward()
+
+        torch.nn.utils.clip_grad_norm_(self.actor_mean.parameters(), 1.0)
+        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 1.0)
+
+        # ---- Step ----
+        self.optimizer_policy.step()
+        self.optimizer_value.step()
+
+        # ---- Logging ----
         wandb.log({
-            "train/log_prob_pi": log_prob_pi.item(),
+            "train/log_prob_pi": log_prob.item(),
             "train/value": v_s.item(),
             "train/td_target": td_target.item(),
             "train/delta": delta.item(),
-            "train/entropy": dist.entropy().sum().item(),
+            "train/entropy": entropy.item(),
             "train/entropy_coeff": entropy_coeff,
+            "train/critic_loss": critic_loss.item(),
+            "train/actor_loss": actor_loss.item(),
         })
 
+        # ---- Overshooting check ----
         if overshooting_info:
-            v_s, v_prime = self.v(s), self.v(s_prime)
-            td_target = r + self.gamma * v_prime * done_mask
-            delta_bar = td_target - v_s
-            if torch.sign(delta_bar * delta).item() == -1:
-                print("Overshooting Detected!")
+            with torch.no_grad():
+                v_s_new = self.v(s)
+                v_prime_new = self.v(s_prime)
+                td_target_new = r + self.gamma * v_prime_new * done_mask
+                delta_new = td_target_new - v_s_new
+
+                if torch.sign(delta_new * delta).item() == -1:
+                    print("Overshooting Detected!")
 
 
 class StreamACRunner:
@@ -299,7 +325,7 @@ class StreamACRunner:
             optimizer=self.optimizer,
         )
         if self.wandb_log and self.interpretability:
-            self.logger = MLPWandBLogger(agent, log_interval=1000, activation_fn='silu')
+            self.logger = MLPWandBLogger(agent, log_interval=1000, activation_fn='tanh')
         return agent
     
     def save_model_and_stats(self):
@@ -514,10 +540,10 @@ if __name__ == '__main__':
     parser.add_argument('--env_name', type=str, default='AnymalC-Reach-v1')
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--hidden_size', type=int, default=256)
-    parser.add_argument('--lr', type=float, default=1)
+    parser.add_argument('--lr', type=float, default=3e-8)
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--lamda', type=float, default=0.8)
-    parser.add_argument('--total_steps', type=int, default=2_000_000)
+    parser.add_argument('--total_steps', type=int, default=1_500_000)
     parser.add_argument('--entropy_coeff', type=float, default=0.01)
     parser.add_argument('--kappa_policy', type=float, default=3.0)
     parser.add_argument('--kappa_value', type=float, default=2.0)
@@ -531,13 +557,13 @@ if __name__ == '__main__':
     parser.add_argument('--save_video', action='store_true', help='Enable video recording during testing', default=False)
     parser.add_argument('--cbp', action='store_true', default=False)
     parser.add_argument('--layernorm', action='store_true', default=False)
-    parser.add_argument('--optimizer', type=str, default="AdaptiveObGD")
-    parser.add_argument('--checkpoint', type=str, default="pretrained-models/anymalc-reach/adam_ppo_pretrain.pt")
+    parser.add_argument('--optimizer', type=str, default="Adam")
+    parser.add_argument('--checkpoint', type=str, default="pretrained-models/anymalc-reach/obgd_ppo_pretrain.pt")
     parser.add_argument('--interpretability', action='store_true', default=False)
     parser.add_argument('--do_damage', action='store_true', default=True)
     parser.add_argument('--damage_start_step', type=int, default=500_000)
     parser.add_argument('--damage_steps', type=int, default=1_500_000, help='Steps between damage events')
-    parser.add_argument('--damage_type', type=str, default='slippery_floor_easy',
+    parser.add_argument('--damage_type', type=str, default='stuck_joint',
                         choices=['broken_leg', 'stuck_joint', 'slippery_floor', 'slippery_floor_easy', 'goal_shift', 'goal_shift_easy'],
                         help='Type of damage to apply')
     args = parser.parse_args()
@@ -567,8 +593,7 @@ if __name__ == '__main__':
         cbp=args.cbp,
         layernorm=args.layernorm,
         optimizer=args.optimizer,
-        checkpoint=args.checkpoint,
-        interpretability=args.interpretability
+        checkpoint=args.checkpoint
     )
     
     if args.mode == 'train':
