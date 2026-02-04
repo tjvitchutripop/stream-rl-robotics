@@ -11,13 +11,13 @@ from mani_skill.utils.wrappers.record import RecordEpisode
 # from stream_ac_training import ToNumpyWrapper
 from mani_skill.utils import gym_utils
 
-env = gym.make("UnitreeGo2-Joystick", num_envs=1, obs_mode="state", render_mode="rgb_array", control_mode="pd_joint_delta_pos")
+env = gym.make("UnitreeGo2-Joystick", num_envs=1, obs_mode="state", render_mode="human", control_mode="pd_joint_delta_pos")
 
 successes = []
 s, _ = env.reset(seed=42)
 
 episode_count = 0
-while episode_count < 1:
+while episode_count < 100000:
     s, info = env.reset()
     done = False
     while not done:

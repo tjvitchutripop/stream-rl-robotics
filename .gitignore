@@ -8,4 +8,5 @@ logs/
 videos/
 wandb/
 streaming_drl/
+ManiSkill/
 .DS_Store
