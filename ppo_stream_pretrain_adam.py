@@ -21,8 +21,8 @@ from mani_skill.utils import gym_utils
 from mani_skill.utils.wrappers.flatten import FlattenActionSpaceWrapper
 from mani_skill.utils.wrappers.record import RecordEpisode
 from mani_skill.vector.wrappers.gymnasium import ManiSkillVectorEnv
-from mani_skill.envs.tasks.quadruped.quadruped_joystick import UnitreeGo2JoystickEnv
-from mani_skill.envs.tasks.tabletop.pick_cube import PickCubeXArm6RobotiqEnv
+# from mani_skill.envs.tasks.quadruped.quadruped_joystick import UnitreeGo2JoystickEnv
+# from mani_skill.envs.tasks.tabletop.pick_cube import PickCubeXArm6RobotiqEnv
 
 # from normalization_wrappers_torch import NormalizeObservation, ScaleReward
 from model import ActorMean, Critic, ActorMeanCBP, CriticCBP

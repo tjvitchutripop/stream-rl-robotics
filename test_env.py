@@ -11,7 +11,7 @@ from mani_skill.utils.wrappers.record import RecordEpisode
 # from stream_ac_training import ToNumpyWrapper
 from mani_skill.utils import gym_utils
 
-env = gym.make("UnitreeGo2-Joystick", num_envs=1, obs_mode="state", render_mode="human", control_mode="pd_joint_delta_pos")
+env = gym.make("PickCube-v1", robot_uids="xarm7_gripper", num_envs=1, control_mode="pd_joint_delta_pos", obs_mode="state", render_mode="human")
 
 successes = []
 s, _ = env.reset(seed=42)
@@ -23,7 +23,7 @@ while episode_count < 100000:
     while not done:
         s = torch.tensor(s, dtype=torch.float32)
         # Get random action
-        a = torch.randn((1, env.action_space.shape[0]))
+        a = torch.zeros((1, env.action_space.shape[0]))
         s_prime, r, terminated, truncated, info = env.step(a)
         print(r)
         s = s_prime

@@ -61,11 +61,12 @@ dependencies = [
     "stable-baselines3==2.3.1",
     "sympy==1.12",
     "tensorboard>=2.20.0",
-    "torch==2.3.0",
+    "torch>=2.3.0",
     "tqdm==4.66.2",
     "typing-extensions>=4.11.0",
     "tyro==0.9.28",
     "tzdata==2024.1",
     "urllib3==2.2.1",
+    "wandb>=0.24.2",
     "zipp==3.18.1",
 ]

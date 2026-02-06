@@ -14,7 +14,6 @@ import tyro
 from torch.distributions.normal import Normal
 from torch.utils.tensorboard import SummaryWriter
 from streaming_drl.optim import ObGD
-from trac_optimizer import start_trac
 
 # ManiSkill specific imports
 import mani_skill.envs

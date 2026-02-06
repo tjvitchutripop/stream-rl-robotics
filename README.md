@@ -1,7 +1,54 @@
-In addition to the files in this repository, make sure to clone the following projects into this directory:
+# Stream RL Plasticity
 
-Streaming-RL: https://github.com/mohmdelsayed/streaming-drl.git (note to use the training scripts in this repo you need to change the name of the directory from "streaming-drl" to "streaming_drl")
+## Installation & Setup
 
-You will also need to install ManiSkill3: https://maniskill.readthedocs.io/en/latest/ (ideally do this from source)
+Follow these steps to set up the environment and install dependencies.
 
-To get closer to a working environment, create a conda environment based on the instructions on the Streaming-RL repo and then install the dependencies for ManiSkill3 afterwards. Once you've done that, try running the stream_ac_training_adapt.py script (but make sure do_damage is False) as there may still be a couple dependencies you need to install manually (e.g., wandb).
+### 1. Install UV and Sync Environment
+
+First, make sure you have `uv` installed. If not, follow the official [installation guide](https://github.com/astral-sh/uv).
+
+Once `uv` is installed, sync the project environment:
+
+```bash
+uv sync
+```
+
+### 2. Install ManiSkill
+
+Clone the ManiSkill repository and install it locally using `uv`:
+
+```bash
+git clone https://github.com/haosulab/ManiSkill.git
+cd ManiSkill
+uv pip install -e .
+cd ..
+```
+
+### 3. Install Streaming DRL
+
+Clone the `streaming-drl` repository and rename it to `streaming_drl` to ensure imports work correctly:
+
+```bash
+git clone https://github.com/mohmdelsayed/streaming-drl.git
+mv streaming-drl streaming_drl
+```
+
+## Source virtual environment
+You don't need to do this if you are using `uv run` but if that doesn't work for you, do this before running the training scripts.
+
+```bash
+source .venv/bin/activate
+```
+
+## Running Experiments
+
+You can now run the training scripts using `uv run` or `python`. For example:
+
+```bash
+uv run stream_ac_training.py
+```
+or 
+```bash
+python stream_ac_training.py
+```

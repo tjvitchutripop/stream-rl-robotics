@@ -15,7 +15,6 @@ from streaming_drl.optim import ObGD as Optimizer
 from streaming_drl.sparse_init import sparse_init
 from streaming_drl.normalization_wrappers import NormalizeObservation, ScaleReward
 from streaming_drl.time_wrapper import AddTimeInfo
-from trac_optimizer import start_trac
 import wandb    
 import time
 import moviepy.editor as mp
