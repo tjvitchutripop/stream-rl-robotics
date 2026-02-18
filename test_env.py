@@ -11,21 +11,23 @@ from mani_skill.utils.wrappers.record import RecordEpisode
 # from stream_ac_training import ToNumpyWrapper
 from mani_skill.utils import gym_utils
 
-env = gym.make("PickCube-v1", robot_uids="xarm7_gripper", num_envs=1, control_mode="pd_joint_delta_pos", obs_mode="state", render_mode="human")
+env = gym.make("PickCubeXArm7Gripper-v1", num_envs=1, control_mode="pd_joint_delta_pos", obs_mode="state", render_mode="rgb_array")
+env = RecordEpisode(env, output_dir=f"videos/test_env/", save_trajectory=False, max_steps_per_video=1000, video_fps=30)
 
 successes = []
 s, _ = env.reset(seed=42)
 
 episode_count = 0
-while episode_count < 100000:
+while episode_count < 1:
     s, info = env.reset()
     done = False
     while not done:
         s = torch.tensor(s, dtype=torch.float32)
         # Get random action
-        a = torch.zeros((1, env.action_space.shape[0]))
+        # a = env.action_space.sample()
+        a = np.zeros(env.action_space.shape)    
         s_prime, r, terminated, truncated, info = env.step(a)
-        print(r)
+        # print(s_prime)
         s = s_prime
         done = terminated or truncated
         env.render()

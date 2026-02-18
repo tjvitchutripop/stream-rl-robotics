@@ -68,25 +68,9 @@ class StreamAC(nn.Module):
         elif self.optimizer == "ObGD":
             self.optimizer_policy = ObGD(list(self.actor_mean.parameters()) + [self.actor_logstd], lr=lr, gamma=gamma, lamda=lamda, kappa=kappa_policy)
             self.optimizer_value = ObGD(self.critic.parameters(), lr=lr, gamma=gamma, lamda=lamda, kappa=kappa_value)
-        elif self.optimizer == "FastTrac":
-            self.optimizer_policy = start_trac(log_file='logs/trac.text', Base=AdaptiveObGD)(
-                list(self.actor_mean.parameters()) + [self.actor_logstd] + list(self.critic.parameters()),
-                lr=3e-4,
-                eps=1e-5
-            )
-            self.optimizer_value = start_trac(log_file='logs/trac.text', Base=AdaptiveObGD)(
-                list(self.critic.parameters()),
-                lr=3e-5,
-                eps=1e-5
-            )
         elif self.optimizer == "Adam":
             self.optimizer_policy = torch.optim.Adam(list(self.actor_mean.parameters()) + [self.actor_logstd], lr=3e-4, eps=1e-5)
             self.optimizer_value = torch.optim.Adam(self.critic.parameters(), lr=3e-4, eps=1e-5)
-            # self.optimizer_trac = start_trac(log_file='logs/trac.text', Base=torch.optim.Adam)(
-            #     list(self.actor_mean.parameters()) + [self.actor_logstd] + list(self.critic.parameters()),
-            #     lr=3e-4,
-            #     eps=1e-5
-            # )
 
     def pi(self, x):
         mu = self.actor_mean(x)
@@ -346,7 +330,6 @@ class StreamACRunner:
             a = self.agent.sample_action(s)
             if self.do_damage and self.damage_ongoing:
                 if self.damage_type == 'broken_leg':
-                    # a = a * np.array([0,1,1,1,0,1,1,1,0,1,1,1]) # Front Right
                     a = a * np.array([1,1,0,1,1,1,0,1,1,1,0,1]) # Back Left Leg
                 elif self.damage_type == 'stuck_joint':
                     a = a * np.array([1,1,1,1,1,1,1,1,1,1,0,1]) # One Joint Stuck
@@ -531,7 +514,7 @@ if __name__ == '__main__':
     parser.add_argument('--cbp', action='store_true', default=False)
     parser.add_argument('--layernorm', action='store_true', default=False)
     parser.add_argument('--optimizer', type=str, default="AdaptiveObGD")
-    parser.add_argument('--checkpoint', type=str, default="pretrained-models/anymalc-reach/adam_ppo_pretrain.pt")
+    parser.add_argument('--checkpoint', type=str, default="pretrained-models/anymalc-reach/adam_ppo_pretrain_final.pt")
     parser.add_argument('--interpretability', action='store_true', default=False)
     parser.add_argument('--do_damage', action='store_true', default=True)
     parser.add_argument('--damage_start_step', type=int, default=500_000)

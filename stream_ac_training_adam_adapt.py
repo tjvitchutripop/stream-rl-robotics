@@ -68,25 +68,9 @@ class StreamAC(nn.Module):
         elif self.optimizer == "ObGD":
             self.optimizer_policy = ObGD(list(self.actor_mean.parameters()) + [self.actor_logstd], lr=lr, gamma=gamma, lamda=lamda, kappa=kappa_policy)
             self.optimizer_value = ObGD(self.critic.parameters(), lr=lr, gamma=gamma, lamda=lamda, kappa=kappa_value)
-        elif self.optimizer == "FastTrac":
-            self.optimizer_policy = start_trac(log_file='logs/trac.text', Base=AdaptiveObGD)(
-                list(self.actor_mean.parameters()) + [self.actor_logstd] + list(self.critic.parameters()),
-                lr=3e-4,
-                eps=1e-5
-            )
-            self.optimizer_value = start_trac(log_file='logs/trac.text', Base=AdaptiveObGD)(
-                list(self.critic.parameters()),
-                lr=3e-5,
-                eps=1e-5
-            )
         elif self.optimizer == "Adam":
             self.optimizer_policy = torch.optim.Adam(list(self.actor_mean.parameters()) + [self.actor_logstd], lr=lr, eps=1e-5)
             self.optimizer_value = torch.optim.Adam(self.critic.parameters(), lr=lr, eps=1e-5)
-            # self.optimizer_trac = start_trac(log_file='logs/trac.text', Base=torch.optim.Adam)(
-            #     list(self.actor_mean.parameters()) + [self.actor_logstd] + list(self.critic.parameters()),
-            #     lr=3e-4,
-            #     eps=1e-5
-            # )
 
     def pi(self, x):
         mu = self.actor_mean(x)
@@ -164,17 +148,6 @@ class StreamAC(nn.Module):
             "train/critic_loss": critic_loss.item(),
             "train/actor_loss": actor_loss.item(),
         })
-
-        # ---- Overshooting check ----
-        if overshooting_info:
-            with torch.no_grad():
-                v_s_new = self.v(s)
-                v_prime_new = self.v(s_prime)
-                td_target_new = r + self.gamma * v_prime_new * done_mask
-                delta_new = td_target_new - v_s_new
-
-                if torch.sign(delta_new * delta).item() == -1:
-                    print("Overshooting Detected!")
 
 
 class StreamACRunner:
@@ -263,7 +236,7 @@ class StreamACRunner:
         if self.wandb_log:
             wandb.init(
                 entity="apollo-lab",
-                project=f"stream-ac-test",
+                project=f"stream-rl-robotics",
                 config={
                     "env_name": self.env_name,
                     "seed": self.seed,
@@ -338,20 +311,6 @@ class StreamACRunner:
         save_dir = f"weights/stream_ac_{self.env_name}_{self.start_time}"
         os.makedirs(save_dir, exist_ok=True)  
         torch.save(self.agent.state_dict(), os.path.join(save_dir, f"seed_{self.seed}.pth"))
-        
-        # Save env stats
-        # reward_wrapper = self.env
-        # while not isinstance(reward_wrapper, ScaleReward) and hasattr(reward_wrapper, 'env'):
-        #     reward_wrapper = reward_wrapper.env
-            
-        # obs_wrapper = self.env
-        # while not isinstance(obs_wrapper, NormalizeObservation) and hasattr(obs_wrapper, 'env'):
-        #     obs_wrapper = obs_wrapper.env
-
-        # reward_stats = reward_wrapper.reward_stats
-        # obs_stats = obs_wrapper.obs_stats
-        # with open(os.path.join(save_dir, f"stats_data_{self.seed}.pkl"), "wb") as f:
-        #     pickle.dump((reward_stats, obs_stats), f)
 
         # Log final model to wandb
         if self.wandb_log:
@@ -372,7 +331,6 @@ class StreamACRunner:
             a = self.agent.sample_action(s)
             if self.do_damage and self.damage_ongoing:
                 if self.damage_type == 'broken_leg':
-                    # a = a * np.array([0,1,1,1,0,1,1,1,0,1,1,1]) # Front Right
                     a = a * np.array([1,1,0,1,1,1,0,1,1,1,0,1]) # Back Left Leg
                 elif self.damage_type == 'stuck_joint':
                     a = a * np.array([1,1,1,1,1,1,1,1,1,1,0,1]) # One Joint Stuck
@@ -407,8 +365,6 @@ class StreamACRunner:
             self.agent.load_state_dict(checkpoint["model_state_dict"], strict=False)
         else:
             self.agent.load_state_dict(checkpoint["model_state_dict"], strict=True)
-        # self.agent.optimizer_policy.load_state_dict(checkpoint["optimizer_policy_state_dict"])
-        # self.agent.optimizer_value.load_state_dict(checkpoint["optimizer_value_state_dict"])
         if self.debug:
             print(f"seed: {self.seed}", f"env: {self.env.spec.id}")
 
@@ -557,7 +513,7 @@ if __name__ == '__main__':
     parser.add_argument('--cbp', action='store_true', default=False)
     parser.add_argument('--layernorm', action='store_true', default=False)
     parser.add_argument('--optimizer', type=str, default="Adam")
-    parser.add_argument('--checkpoint', type=str, default="pretrained-models/anymalc-reach/obgd_ppo_pretrain.pt")
+    parser.add_argument('--checkpoint', type=str, default="pretrained-models/anymalc-reach/adam_ppo_pretrain_final.pt")
     parser.add_argument('--interpretability', action='store_true', default=False)
     parser.add_argument('--do_damage', action='store_true', default=True)
     parser.add_argument('--damage_start_step', type=int, default=500_000)

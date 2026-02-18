@@ -596,13 +596,13 @@ if __name__ == '__main__':
     parser.add_argument('--layernorm', action='store_true', default=False)
 
     # PPO specific arguments
-    parser.add_argument('--num_steps', type=int, default=256, help="Rollout buffer size")
+    parser.add_argument('--num_steps', type=int, default=2048, help="Rollout buffer size")
     parser.add_argument('--gae_lambda', type=float, default=0.95, help="Lambda for GAE")
-    parser.add_argument('--num_minibatches', type=int, default=32)
+    parser.add_argument('--num_minibatches', type=int, default=128)
     parser.add_argument('--update_epochs', type=int, default=10)
     parser.add_argument('--norm_adv', action='store_true', default=True)
     parser.add_argument('--clip_coef', type=float, default=0.2)
-    parser.add_argument('--ent_coef', type=float, default=0.0)
+    parser.add_argument('--ent_coef', type=float, default=0.001)
     parser.add_argument('--vf_coef', type=float, default=0.5)
     parser.add_argument('--max_grad_norm', type=float, default=0.5)
     parser.add_argument('--target_kl', type=float, default=None)
