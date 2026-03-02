@@ -1,4 +1,6 @@
-# Stream RL Plasticity
+# Stream RL Robotics
+
+This is a repository containing the training and evaluation scripts for the paper "An Analysis of Streaming Deep Reinforcement Learning for Adaptive Continual Learning in Robotics".
 
 ## Installation & Setup
 
@@ -23,15 +25,6 @@ git clone https://github.com/haosulab/ManiSkill.git
 cd ManiSkill
 uv pip install -e .
 cd ..
-```
-
-### 3. Install Streaming DRL
-
-Clone the `streaming-drl` repository and rename it to `streaming_drl` to ensure imports work correctly:
-
-```bash
-git clone https://github.com/mohmdelsayed/streaming-drl.git
-mv streaming-drl streaming_drl
 ```
 
 ## Source virtual environment
