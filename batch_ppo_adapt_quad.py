@@ -20,6 +20,7 @@ import moviepy.editor as mp
 import glob
 import mani_skill.envs
 from model import ActorMean, Critic, ActorMeanLN, CriticLN, ActorMeanCBP, CriticCBP
+from custom_envs.quadruped_reach import QuadrupedReachEnv
 
 class ToNumpyWrapper(gym.Wrapper):
   def reset(self, **kwargs):
