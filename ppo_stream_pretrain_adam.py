@@ -25,7 +25,7 @@ from mani_skill.vector.wrappers.gymnasium import ManiSkillVectorEnv
 # from mani_skill.envs.tasks.tabletop.pick_cube import PickCubeXArm6RobotiqEnv
 
 # from normalization_wrappers_torch import NormalizeObservation, ScaleReward
-from model import ActorMean, Critic, ActorMeanCBP, CriticCBP
+from model import ActorMean, Critic, ActorMeanCBP, CriticCBP, ActorMeanLN, CriticLN
 
 @dataclass
 class Args:

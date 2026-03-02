@@ -241,7 +241,7 @@ class StreamACRunner:
         if self.wandb_log:
             wandb.init(
                 entity="apollo-lab",
-                project=f"stream-ac-test",
+                project=f"stream-rl-robotics",
                 config={
                     "env_name": self.env_name,
                     "seed": self.seed,
@@ -492,6 +492,7 @@ class StreamACRunner:
                     f.write(f"Mean Eval Episodic Return: {mean_return}, Success Rate: {success_rate}, Eval Number: {t // self.eval_frequency}\n")
 
             a = self.agent.sample_action(s)
+            pred_a = a.copy()
             
             # Handle accumulative damage types
             if self.do_damage:
@@ -520,7 +521,7 @@ class StreamACRunner:
                         f.write(f"Active damages at step {t}: {current_active_damages}\n")
 
             s_prime, r, terminated, truncated, info = self.env.step(a)
-            self.agent.update_params(s, a, r, s_prime, terminated or truncated, self.entropy_coeff, self.overshooting_info)
+            self.agent.update_params(s, pred_a, r, s_prime, terminated or truncated, self.entropy_coeff, self.overshooting_info)
             s = s_prime
 
             if terminated or truncated:
@@ -575,14 +576,14 @@ if __name__ == '__main__':
     parser.add_argument('--render', action='store_true')
     parser.add_argument('--mode', type=str, choices=['train', 'test'], default='train')
     parser.add_argument('--save_video', action='store_true', help='Enable video recording during testing', default=False)
-    parser.add_argument('--cbp', action='store_true', default=True)
+    parser.add_argument('--cbp', action='store_true', default=False)
     parser.add_argument('--layernorm', action='store_true', default=False)
     parser.add_argument('--optimizer', type=str, default="AdaptiveObGD")
-    parser.add_argument('--checkpoint', type=str, default="obgd_ppo_pretrain.pt")
+    parser.add_argument('--checkpoint', type=str, default="pretrained-models/anymalc-reach/adam_ppo_pretrain_final.pt")
     parser.add_argument('--do_damage', action='store_true', default=True)
     parser.add_argument('--damage_start_step', type=int, default=500_000)
     parser.add_argument('--damage_steps', type=int, default=1_000_000, help='Steps between damage events')
-    parser.add_argument('--damage_type', nargs='+', default=['goal_shift_easy','slippery_floor_easy', 'stuck_joint'],
+    parser.add_argument('--damage_type', nargs='+', default=['broken_leg','goal_shift', 'slippery_floor'],
                         choices=['broken_leg', 'stuck_joint', 'slippery_floor', 'slippery_floor_easy', 'goal_shift', 'goal_shift_easy'],
                         help='List of damage types to apply sequentially')
     args = parser.parse_args()

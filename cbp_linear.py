@@ -60,6 +60,7 @@ class CBPLinear(nn.Module):
         self.util_type = util_type
         self.decay_rate = decay_rate
         self.features = None
+        self.act_type = act_type
         """
         Register hooks
         """
@@ -110,7 +111,11 @@ class CBPLinear(nn.Module):
         Calculate feature utility
         """
         output_weight_mag = self.out_layer.weight.data.abs().mean(dim=0)
-        self.util.data = output_weight_mag * self.features.abs().mean(dim=[i for i in range(self.features.ndim - 1)])
+        if self.act_type == "tanh":
+            plasticity = (1.0 - self.features.pow(2)).mean(dim=[i for i in range(self.features.ndim - 1)])
+            self.util.data = output_weight_mag * plasticity
+        else:
+            self.util.data = output_weight_mag * self.features.abs().mean(dim=[i for i in range(self.features.ndim - 1)])
         """
         Find features with smallest utility
         """

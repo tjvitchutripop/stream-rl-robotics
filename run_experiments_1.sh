@@ -1,14 +1,4 @@
-python stream_ac_training_adapt.py --damage_type broken_leg --seed 0 --optimizer ObGD
-python stream_ac_training_adam_adapt.py --damage_type broken_leg --seed 0
-python stream_ac_training_adapt.py --damage_type broken_leg --seed 1
-python stream_ac_training_adapt.py --damage_type broken_leg --seed 2
-python stream_ac_training_adapt.py --damage_type broken_leg --seed 3
-python stream_ac_training_adapt.py --damage_type broken_leg --seed 4
-python stream_ac_training_adapt.py --damage_type broken_leg --seed 1 --optimizer ObGD
-python stream_ac_training_adapt.py --damage_type broken_leg --seed 2 --optimizer ObGD
-python stream_ac_training_adapt.py --damage_type broken_leg --seed 3 --optimizer ObGD
-python stream_ac_training_adapt.py --damage_type broken_leg --seed 4 --optimizer ObGD
-python stream_ac_training_adam_adapt.py --damage_type broken_leg --seed 1
-python stream_ac_training_adam_adapt.py --damage_type broken_leg --seed 2
-python stream_ac_training_adam_adapt.py --damage_type broken_leg --seed 3
-python stream_ac_training_adam_adapt.py --damage_type broken_leg --seed 4
+python stream_ac_transportbox_training.py --env_name UnitreeG1TransportBox-v1 --seed 4 --mode train --checkpoint pretrained-models/transport-box/adam_ppo_pretrain.pt --optimizer AdaptiveObGD --lr 1 --gamma 0.99 --lamda 0.8 --entropy_coeff 0.02 --kappa_policy 50 --kappa_value 40 --total_steps 2000000 --eval_frequency 10000 --eval_episodes 50 --wandb_log --do_damage --damage_type arm_hand_impairment --damage_start_step 500000 --damage_steps 1500000 --arm_shoulder_elbow_gain 0.93 --arm_finger_gain 0.53 --arm_stuck_joint_idxs 1 11 19 21
+python stream_ac_transportbox_training.py --env_name UnitreeG1TransportBox-v1 --seed 4 --mode train --checkpoint pretrained-models/transport-box/adam_ppo_pretrain.pt --optimizer ObGD --lr 1 --gamma 0.99 --lamda 0.8 --entropy_coeff 0.02 --kappa_policy 500 --kappa_value 400 --total_steps 2000000 --eval_frequency 10000 --eval_episodes 50 --wandb_log --do_damage --damage_type arm_hand_impairment --damage_start_step 500000 --damage_steps 1500000 --arm_shoulder_elbow_gain 0.93 --arm_finger_gain 0.53 --arm_stuck_joint_idxs 1 11 19 21
+python stream_ac_transportbox_training.py --env_name UnitreeG1TransportBox-v1 --seed 3 --mode train --checkpoint pretrained-models/transport-box/adam_ppo_pretrain.pt --optimizer AdaptiveObGD --lr 1 --gamma 0.99 --lamda 0.8 --entropy_coeff 0.02 --kappa_policy 50 --kappa_value 40 --total_steps 2000000 --eval_frequency 10000 --eval_episodes 50 --wandb_log --do_damage --damage_type arm_hand_impairment --damage_start_step 500000 --damage_steps 1500000 --arm_shoulder_elbow_gain 0.93 --arm_finger_gain 0.53 --arm_stuck_joint_idxs 1 11 19 21
+python stream_ac_transportbox_training.py --env_name UnitreeG1TransportBox-v1 --seed 3 --mode train --checkpoint pretrained-models/transport-box/adam_ppo_pretrain.pt --optimizer ObGD --lr 1 --gamma 0.99 --lamda 0.8 --entropy_coeff 0.02 --kappa_policy 500 --kappa_value 400 --total_steps 2000000 --eval_frequency 10000 --eval_episodes 50 --wandb_log --do_damage --damage_type arm_hand_impairment --damage_start_step 500000 --damage_steps 1500000 --arm_shoulder_elbow_gain 0.93 --arm_finger_gain 0.53 --arm_stuck_joint_idxs 1 11 19 21

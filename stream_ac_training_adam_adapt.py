@@ -69,8 +69,14 @@ class StreamAC(nn.Module):
             self.optimizer_policy = ObGD(list(self.actor_mean.parameters()) + [self.actor_logstd], lr=lr, gamma=gamma, lamda=lamda, kappa=kappa_policy)
             self.optimizer_value = ObGD(self.critic.parameters(), lr=lr, gamma=gamma, lamda=lamda, kappa=kappa_value)
         elif self.optimizer == "Adam":
-            self.optimizer_policy = torch.optim.Adam(list(self.actor_mean.parameters()) + [self.actor_logstd], lr=lr, eps=1e-5)
-            self.optimizer_value = torch.optim.Adam(self.critic.parameters(), lr=lr, eps=1e-5)
+            self.optimizer_policy = torch.optim.Adam(
+                list(self.actor_mean.parameters()) + [self.actor_logstd], 
+                lr=lr, eps=1e-4
+            )
+            self.optimizer_value = torch.optim.Adam(
+                self.critic.parameters(), 
+                lr=lr, eps=1e-4
+            )
 
     def pi(self, x):
         mu = self.actor_mean(x)
@@ -130,7 +136,7 @@ class StreamAC(nn.Module):
         critic_loss.backward()
         actor_total.backward()
 
-        torch.nn.utils.clip_grad_norm_(self.actor_mean.parameters(), 1.0)
+        torch.nn.utils.clip_grad_norm_(list(self.actor_mean.parameters()) + [self.actor_logstd], 1.0)
         torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 1.0)
 
         # ---- Step ----
@@ -421,7 +427,7 @@ class StreamACRunner:
                     if self.damage_type == 'slippery_floor' or self.damage_type == 'slippery_floor_easy':
                         wandb.log({"slippery_floor": 1})
                     elif self.damage_type == 'broken_leg':
-                        # a = a * np.array([0,1,1,1,0,1,1,1,0,1,1,1]) # Front Right
+                        pred_a = a.copy()
                         a = a * np.array([1,1,0,1,1,1,0,1,1,1,0,1]) # Back Left Leg
                         wandb.log({"damaged_leg": 0})
                     elif self.damage_type == 'stuck_joint':
@@ -443,7 +449,10 @@ class StreamACRunner:
             s_prime, r, terminated, truncated, info = self.env.step(a)
             if self.wandb_log and self.interpretability:
                 self.logger.log(t)
-            self.agent.update_params(s, a, r, s_prime, terminated or truncated, self.entropy_coeff, self.overshooting_info)
+            if self.damage_ongoing and self.damage_type == 'broken_leg':
+                self.agent.update_params(s, pred_a, r, s_prime, terminated or truncated, self.entropy_coeff, self.overshooting_info)
+            else:
+                self.agent.update_params(s, a, r, s_prime, terminated or truncated, self.entropy_coeff, self.overshooting_info)
             s = s_prime
 
             if terminated or truncated:
@@ -498,8 +507,8 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=float, default=3e-8)
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--lamda', type=float, default=0.8)
-    parser.add_argument('--total_steps', type=int, default=1_500_000)
-    parser.add_argument('--entropy_coeff', type=float, default=0.01)
+    parser.add_argument('--total_steps', type=int, default=2_000_000)
+    parser.add_argument('--entropy_coeff', type=float, default=0.0)
     parser.add_argument('--kappa_policy', type=float, default=3.0)
     parser.add_argument('--kappa_value', type=float, default=2.0)
     parser.add_argument('--eval_frequency', type=int, default=10_000)
@@ -517,8 +526,8 @@ if __name__ == '__main__':
     parser.add_argument('--interpretability', action='store_true', default=False)
     parser.add_argument('--do_damage', action='store_true', default=True)
     parser.add_argument('--damage_start_step', type=int, default=500_000)
-    parser.add_argument('--damage_steps', type=int, default=1_500_000, help='Steps between damage events')
-    parser.add_argument('--damage_type', type=str, default='stuck_joint',
+    parser.add_argument('--damage_steps', type=int, default=2_000_000, help='Steps between damage events')
+    parser.add_argument('--damage_type', type=str, default='broken_leg',
                         choices=['broken_leg', 'stuck_joint', 'slippery_floor', 'slippery_floor_easy', 'goal_shift', 'goal_shift_easy'],
                         help='Type of damage to apply')
     args = parser.parse_args()

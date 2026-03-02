@@ -126,7 +126,7 @@ class Critic(nn.Module):
         return x
 
 class ActorMeanCBP(nn.Module):
-    def __init__(self, n_obs=11, n_actions=3, hidden_size=256, replacement_rate=1e-5, maturity_threshold=1000):
+    def __init__(self, n_obs=11, n_actions=3, hidden_size=256, replacement_rate=1e-5, maturity_threshold=1000, decay_rate=0.99):
         super(ActorMeanCBP, self).__init__()
         self.fc1 = nn.Linear(n_obs, hidden_size)
         self.fc2 = nn.Linear(hidden_size, hidden_size)
@@ -135,9 +135,9 @@ class ActorMeanCBP(nn.Module):
         self.activation = nn.Tanh()
         self.apply(initialize_weights)
 
-        self.cbp1 = CBPLinear(in_layer=self.fc1, out_layer=self.fc2, replacement_rate=replacement_rate, maturity_threshold=maturity_threshold, act_type="tanh")
-        self.cbp2 = CBPLinear(in_layer=self.fc2, out_layer=self.fc3, replacement_rate=replacement_rate, maturity_threshold=maturity_threshold, act_type="tanh")
-        self.cbp3 = CBPLinear(in_layer=self.fc3, out_layer=self.fc4, replacement_rate=replacement_rate, maturity_threshold=maturity_threshold, act_type="tanh")
+        self.cbp1 = CBPLinear(in_layer=self.fc1, out_layer=self.fc2, replacement_rate=replacement_rate, maturity_threshold=maturity_threshold, act_type="tanh", decay_rate=decay_rate)
+        self.cbp2 = CBPLinear(in_layer=self.fc2, out_layer=self.fc3, replacement_rate=replacement_rate, maturity_threshold=maturity_threshold, act_type="tanh", decay_rate=decay_rate)
+        self.cbp3 = CBPLinear(in_layer=self.fc3, out_layer=self.fc4, replacement_rate=replacement_rate, maturity_threshold=maturity_threshold, act_type="tanh", decay_rate=decay_rate)
 
     def forward(self, x):
         x = self.cbp1(self.activation(self.fc1(x)))
@@ -147,7 +147,7 @@ class ActorMeanCBP(nn.Module):
         return x
     
 class CriticCBP(nn.Module):
-    def __init__(self, n_obs=11, hidden_size=128, replacement_rate=1e-5, maturity_threshold=1000):
+    def __init__(self, n_obs=11, hidden_size=128, replacement_rate=1e-5, maturity_threshold=1000, decay_rate=0.99):
         super(CriticCBP, self).__init__()
         self.fc1 = nn.Linear(n_obs, hidden_size)
         self.fc2 = nn.Linear(hidden_size, hidden_size)
@@ -156,9 +156,9 @@ class CriticCBP(nn.Module):
         self.activation = nn.Tanh()
         self.apply(initialize_weights)
 
-        self.cbp1 = CBPLinear(in_layer=self.fc1, out_layer=self.fc2, replacement_rate=replacement_rate, maturity_threshold=maturity_threshold, act_type="tanh")
-        self.cbp2 = CBPLinear(in_layer=self.fc2, out_layer=self.fc3, replacement_rate=replacement_rate, maturity_threshold=maturity_threshold, act_type="tanh")
-        self.cbp3 = CBPLinear(in_layer=self.fc3, out_layer=self.value, replacement_rate=replacement_rate, maturity_threshold=maturity_threshold, act_type="tanh")
+        self.cbp1 = CBPLinear(in_layer=self.fc1, out_layer=self.fc2, replacement_rate=replacement_rate, maturity_threshold=maturity_threshold, act_type="tanh", decay_rate=decay_rate)
+        self.cbp2 = CBPLinear(in_layer=self.fc2, out_layer=self.fc3, replacement_rate=replacement_rate, maturity_threshold=maturity_threshold, act_type="tanh", decay_rate=decay_rate)
+        self.cbp3 = CBPLinear(in_layer=self.fc3, out_layer=self.value, replacement_rate=replacement_rate, maturity_threshold=maturity_threshold, act_type="tanh", decay_rate=decay_rate)
 
     def forward(self, x):
         x = self.cbp1(self.activation(self.fc1(x)))
