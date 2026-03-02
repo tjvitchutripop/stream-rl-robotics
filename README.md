@@ -39,9 +39,9 @@ source .venv/bin/activate
 You can now run the training scripts using `uv run` or `python`. For example:
 
 ```bash
-uv run stream_ac_training.py
+uv run stream_ac_training_adapt_quad.py
 ```
 or 
 ```bash
-python stream_ac_training.py
+python stream_ac_training_adapt_quad.py
 ```
