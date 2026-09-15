@@ -1,4 +1,6 @@
-# Stream RL Plasticity
+# Stream RL Robotics
+
+This is a repository containing the training and evaluation scripts for the paper "An Analysis of Streaming Deep Reinforcement Learning for Adaptive Continual Learning in Robotics".
 
 ## Installation & Setup
 
@@ -25,15 +27,6 @@ uv pip install -e .
 cd ..
 ```
 
-### 3. Install Streaming DRL
-
-Clone the `streaming-drl` repository and rename it to `streaming_drl` to ensure imports work correctly:
-
-```bash
-git clone https://github.com/mohmdelsayed/streaming-drl.git
-mv streaming-drl streaming_drl
-```
-
 ## Source virtual environment
 You don't need to do this if you are using `uv run` but if that doesn't work for you, do this before running the training scripts.
 
@@ -46,9 +39,9 @@ source .venv/bin/activate
 You can now run the training scripts using `uv run` or `python`. For example:
 
 ```bash
-uv run stream_ac_training.py
+uv run stream_ac_training_adapt_quad.py
 ```
 or 
 ```bash
-python stream_ac_training.py
+python stream_ac_training_adapt_quad.py
 ```

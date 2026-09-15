@@ -7,7 +7,8 @@ weights/
 logs/
 videos/
 wandb/
-streaming_drl/
 ManiSkill/
 select_models/
 .DS_Store
+.venv
+.vscode
