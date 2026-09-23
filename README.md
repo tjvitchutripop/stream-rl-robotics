@@ -47,7 +47,7 @@ Start streaming adaptation from the included AnymalC PPO checkpoint. This defaul
 ```bash
 uv run stream_ac_training_adapt_quad.py \
   --checkpoint pretrained-models/anymalc-reach/adam_ppo_pretrain.pt \
-  --damage_type slippery_floor_easy
+  --damage_type slippery_floor
 ```
 
 Use the Adam-specific variant for an Adam optimizer baseline:
@@ -58,7 +58,7 @@ uv run stream_ac_training_adapt_quad_adam.py \
   --damage_type broken_leg
 ```
 
-Available quadruped perturbations are `broken_leg`, `stuck_joint`, `slippery_floor`, `slippery_floor_easy`, `goal_shift`, and `goal_shift_easy`.
+The paper uses the `goal_shift`, `broken_leg`, and `slippery_floor` conditions. Easier variants, including `stuck_joint`, `slippery_floor_easy`, and `goal_shift_easy`, are also available in the code but were not used in the paper.
 
 ### PushCube manipulation
 
@@ -69,6 +69,7 @@ uv run stream_ac_training_adapt_manip.py \
 ```
 
 `custom_envs/push_cube.py` registers `PushCube-v1` and implements task changes such as goal shifts and cube/table friction changes.
+For the manipulation `goal_shift` condition, the goal is offset by `-0.15` on the y-axis.
 
 ### Humanoid transport
 
@@ -108,6 +109,20 @@ The repository ships pre-trained PPO weights for the three main tasks:
 | Humanoid transport | `pretrained-models/transport-box/` |
 
 Both standard and layer-normalized (`*_ln.pt`) checkpoints are provided. Pass a checkpoint path with `--checkpoint` when running an adaptation script. When loading a layer-normalized checkpoint, also pass `--layernorm`.
+
+## Evaluate a training checkpoint
+
+`evaluate_policy.py` evaluates a compatible checkpoint saved by a training run and reports mean return and success rate. It uses deterministic policy means by default; add `--stochastic` to sample actions. Damage is opt-in with `--damage-type`.
+
+```bash
+uv run evaluate_policy.py \
+  --task quad \
+  --checkpoint weights/stream_ac_AnymalC-Reach-v1_<timestamp>/seed_0.pth \
+  --damage-type broken_leg \
+  --episodes 50
+```
+
+Use `--task manip` or `--task humanoid` for the other tasks. The `--help` output lists each task's supported optional damage conditions and parameters. In particular, `--task manip --damage-type goal_shift` uses the paper's `-0.15` y-axis offset unless overridden with `--goal-offset-y`.
 
 ## Outputs and tracking
 

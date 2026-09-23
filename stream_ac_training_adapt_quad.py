@@ -535,7 +535,7 @@ if __name__ == '__main__':
     parser.add_argument('--do_damage', action='store_true', default=True)
     parser.add_argument('--damage_start_step', type=int, default=500_000)
     parser.add_argument('--damage_steps', type=int, default=1_500_000, help='Steps between damage events')
-    parser.add_argument('--damage_type', type=str, default='slippery_floor_easy',
+    parser.add_argument('--damage_type', type=str, default='broken_leg',
                         choices=['broken_leg', 'stuck_joint', 'slippery_floor', 'slippery_floor_easy', 'goal_shift', 'goal_shift_easy'],
                         help='Type of damage to apply')
     args = parser.parse_args()
