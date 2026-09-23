@@ -35,6 +35,7 @@ dependencies = [
     "labmaze==1.0.6",
     "lxml==5.2.1",
     "lz4==4.3.3",
+    "mani-skill>=3.0.1",
     "markupsafe==2.1.5",
     "matplotlib==3.8.4",
     "minatar==1.0.15",
